@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (89 tests)
+mvn install                       # framework (90 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -423,23 +423,26 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   cargadas, el manifiesto, `roles.idx` y el registro. Por eso vale también para plugins con metadata
   escrita a mano.
 - **Nada gráfico en el core.** El panel de referencia para Swing está en un artefacto opcional aparte,
-  `framework-swing`: `new PluginsPanel(plugins)` se pone en un diálogo o una pestaña. Tiene dos
-  árboles:
-  - "Plugins": plugin → extensiones → roles, más los roles que define, con versión, estado, "en uso" o
-    "se va al próximo arranque", y un tooltip con dependencias, quién lo retiene y el motivo de una falla;
-  - "Roles": rol y quién lo define → implementaciones, marcando las ocultas.
+  `framework-swing`: `new PluginsPanel(plugins)` se pone en un diálogo o una pestaña. La pestaña
+  "Plugins" tiene dos listas lado a lado, con botones para pasar de una a la otra:
+  - "Installed": un árbol plugin → extensiones → roles, más los roles que define. Arranca colapsado, una
+    línea por plugin con versión, estado y "en uso" o "se va al próximo arranque", y un tooltip con
+    dependencias, quién lo retiene y el motivo de una falla;
+  - "Available": lo que ofrece el catálogo (la `PluginSource` del servicio) y no está instalado.
 
-  Y una tercera pestaña, "Available", con lo que ofrece el catálogo (la `PluginSource` del servicio) y
-  no está instalado: "Check" lo consulta, "Install" lo instala con sus dependencias y arranca en el
-  momento. Las dos cosas corren fuera del hilo de Swing, porque pueden ir a la red. Esa lista sale de
+  Las dos admiten selección múltiple. "← Install" instala los seleccionados con sus dependencias; arrancan
+  en el momento, pasan a la otra lista y quedan seleccionados ahí, así se ve qué llegó. "Remove →"
+  desinstala en el momento lo que nada retiene y deja lo demás para el próximo arranque. El catálogo se
+  consulta al mostrar el panel por primera vez, después de cada remoción (lo sacado se vuelve a ofrecer)
+  y con "Check", siempre fuera del hilo de Swing, porque puede ir a la red. Esa lista sale de
   `PluginService.available()`, que consulta la fuente y no cambia nada (a diferencia de
   `checkForUpdates()`). Cada entrada muestra también su origen: `PluginSource.origin(artifact)`, un texto
   para personas ("plugins folder", "GitHub release"...) con el que una fuente que une varios lugares
   dice cuál ganó. No forma parte de la identidad del artefacto.
 
-  "Remove" desinstala en el momento si nada retiene el plugin, y si no lo deja para el próximo
-  arranque; "Refresh" vuelve a leer el estado. Armar los árboles (`PluginTrees`) está separado de los
-  widgets, así que se prueba sin pantalla.
+  La pestaña "Roles" es el árbol rol y quién lo define → implementaciones, marcando las ocultas, también
+  colapsado. "Refresh" vuelve a leer el estado y conserva lo seleccionado y lo abierto. Armar los árboles
+  (`PluginTrees`) está separado de los widgets, así que se prueba sin pantalla.
 
 ### Plugins por defecto dentro de la aplicación
 
@@ -488,7 +491,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
   separación entre catálogo e instalado. Tests: runtime 49, build core 13, processor 6, API 7, guice 5,
-  harness 6, swing 3. Además, `examples/` con dos apps, un sub-plugin, una app con su
+  harness 6, swing 4. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
   un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es

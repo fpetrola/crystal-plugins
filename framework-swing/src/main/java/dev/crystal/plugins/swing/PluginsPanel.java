@@ -1,10 +1,22 @@
 package dev.crystal.plugins.swing;
 
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.GridLayout;
+import java.awt.Insets;
+import java.awt.event.HierarchyEvent;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
 
+import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -13,105 +25,204 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTree;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.ToolTipManager;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
+import javax.swing.tree.TreeSelectionModel;
 
 import dev.crystal.plugins.api.PluginArtifact;
 import dev.crystal.plugins.runtime.PluginInfo;
 import dev.crystal.plugins.runtime.PluginService;
 
 /**
- * A reference panel for a Swing application's plugin settings: what each plugin brings, the role tree, and
- * removing a plugin (now if nothing holds it, otherwise on the next start), and installing what the catalog
- * (the service's {@code PluginSource}) offers. Everything it shows comes from
- * {@link PluginService}; drop it in a dialog or a tab:
+ * A reference panel for a Swing application's plugin settings. The installed plugins and what the catalog (the
+ * service's {@code PluginSource}) offers sit side by side, with buttons to move the selected ones from one to
+ * the other: installing (with the dependencies they lack; they start at once) and removing (now if nothing
+ * holds them, otherwise on the next start). Both lists take several selections. A second tab shows the role
+ * tree. Everything it shows comes from {@link PluginService}; drop it in a dialog or a tab:
  *
  * <pre>{@code
  * dialog.add(new PluginsPanel(plugins));
  * }</pre>
  *
- * Call it from the event dispatch thread, like any Swing component.
+ * The catalog is asked the first time the panel is shown, and again after a removal (a removed plugin is
+ * offered again); both off the event dispatch thread, because it may go to the network. Call the panel from
+ * the event dispatch thread, like any Swing component.
  */
 public class PluginsPanel extends JPanel {
 
     private final PluginService plugins;
-    private final JTree byPlugin = tree();
+    private final JTree installed = tree();
     private final JTree byRole = tree();
-    private final JButton remove = new JButton("Remove");
-    private final JLabel status = new JLabel(" ");
     private final DefaultListModel<PluginArtifact> offered = new DefaultListModel<>();
     private final JList<PluginArtifact> available = new JList<>(offered);
-    private final JButton install = new JButton("Install");
+    private final JButton install = new JButton("← Install");
+    private final JButton remove = new JButton("Remove →");
+    private final JLabel status = new JLabel(" ");
 
     public PluginsPanel(PluginService plugins) {
         super(new BorderLayout());
         this.plugins = Objects.requireNonNull(plugins);
 
+        installed.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
+        installed.addTreeSelectionListener(e -> remove.setEnabled(!selectedPlugins().isEmpty()));
+        available.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        available.addListSelectionListener(e -> install.setEnabled(!available.getSelectedValuesList().isEmpty()));
+        available.setCellRenderer((list, value, index, selected, focus) -> {
+            String origin = plugins.origin(value);
+            JLabel label = new JLabel(value.id() + " " + value.version() + (origin.isBlank() ? "" : " — " + origin));
+            label.setOpaque(true);
+            label.setBackground(selected ? list.getSelectionBackground() : list.getBackground());
+            label.setForeground(selected ? list.getSelectionForeground() : list.getForeground());
+            return label;
+        });
+        install.setEnabled(false);
+        remove.setEnabled(false);
+        install.addActionListener(e -> {
+            List<String> ids = available.getSelectedValuesList().stream().map(PluginArtifact::id).toList();
+            if (!ids.isEmpty()) {
+                background("Installing " + String.join(", ", ids) + "...", () -> install(ids), this::installed);
+            }
+        });
+        remove.addActionListener(e -> {
+            removeSelected();
+            recheck();
+        });
+
         JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Plugins", new JScrollPane(byPlugin));
+        tabs.addTab("Plugins", pluginsTab());
         tabs.addTab("Roles", new JScrollPane(byRole));
-        tabs.addTab("Available", availableTab());
         add(tabs, BorderLayout.CENTER);
 
         JButton refresh = new JButton("Refresh");
         refresh.addActionListener(e -> refresh());
-        remove.addActionListener(e -> removeSelected());
-        remove.setEnabled(false);
-        byPlugin.addTreeSelectionListener(e -> remove.setEnabled(selectedPlugin() != null));
-
         JPanel south = new JPanel(new BorderLayout());
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttons.add(refresh);
-        buttons.add(remove);
         south.add(status, BorderLayout.CENTER);
-        south.add(buttons, BorderLayout.EAST);
+        south.add(refresh, BorderLayout.EAST);
         add(south, BorderLayout.SOUTH);
 
         refresh();
         // Changes made elsewhere (code, another window) show up here too.
-        plugins.onChange(() -> javax.swing.SwingUtilities.invokeLater(this::refresh));
+        plugins.onChange(() -> SwingUtilities.invokeLater(this::refresh));
+        // The catalog is asked when the panel is first shown, not when it is built.
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing() && offered.isEmpty()) {
+                recheck();
+            }
+        });
     }
 
-    /** Rebuilds both trees from the service's current state. */
-    public void refresh() {
-        show(byPlugin, PluginTrees.byPlugin(plugins));
-        show(byRole, PluginTrees.byRole(plugins));
-        remove.setEnabled(selectedPlugin() != null);
+    private JPanel pluginsTab() {
+        JPanel left = titled("Installed", new JScrollPane(installed));
+        JButton check = new JButton("Check");
+        check.setToolTipText("Ask the catalog again");
+        check.addActionListener(e -> recheck());
+        JPanel checkRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        checkRow.add(check);
+        JPanel right = titled("Available", new JScrollPane(available));
+        right.add(checkRow, BorderLayout.SOUTH);
+
+        JPanel buttons = new JPanel(new GridLayout(2, 1, 0, 8));
+        buttons.add(install);
+        buttons.add(remove);
+
+        // Installed | buttons | Available, the two lists sharing the width equally whatever their contents.
+        left.setPreferredSize(new Dimension(260, 240));
+        right.setPreferredSize(new Dimension(260, 240));
+        JPanel tab = new JPanel(new GridBagLayout());
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridy = 0;
+        c.fill = GridBagConstraints.BOTH;
+        c.weighty = 1;
+        c.weightx = 1;
+        tab.add(left, c);
+        c.weightx = 0;
+        c.fill = GridBagConstraints.NONE;
+        c.insets = new Insets(0, 6, 0, 6);
+        tab.add(buttons, c);
+        c.weightx = 1;
+        c.fill = GridBagConstraints.BOTH;
+        c.insets = new Insets(0, 0, 0, 0);
+        tab.add(right, c);
+        return tab;
+    }
+
+    private static JPanel titled(String title, JScrollPane content) {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createTitledBorder(title));
+        panel.add(content, BorderLayout.CENTER);
+        return panel;
     }
 
     /**
-     * Removes the selected plugin: at once if nothing holds it, otherwise on the next start.
+     * Rebuilds both trees from the service's current state, keeping which plugins are selected and expanded.
+     * Plugins start collapsed: one line each, opened on demand to see extensions and roles.
+     */
+    public void refresh() {
+        List<String> selected = selectedPlugins();
+        Set<String> expanded = expanded(installed, PluginTrees.Node::pluginId);
+        show(installed, PluginTrees.byPlugin(plugins), expanded, PluginTrees.Node::pluginId);
+        Set<String> roles = expanded(byRole, PluginTrees.Node::tooltip);
+        show(byRole, PluginTrees.byRole(plugins), roles, PluginTrees.Node::tooltip);
+        select(selected.toArray(String[]::new));
+        remove.setEnabled(!selectedPlugins().isEmpty());
+        List<String> loaded = plugins.plugins().stream().map(PluginInfo::id).toList();
+        for (int i = offered.size() - 1; i >= 0; i--) {
+            if (loaded.contains(offered.get(i).id())) {
+                offered.remove(i);
+            }
+        }
+    }
+
+    /**
+     * Removes the plugins selected in the installed list: each at once if nothing holds it, otherwise on the
+     * next start.
      *
      * @return what happened, also shown in the panel's status line
      */
     public String removeSelected() {
-        String id = selectedPlugin();
-        if (id == null) {
+        List<String> ids = selectedPlugins();
+        if (ids.isEmpty()) {
             return "";
         }
-        String message;
-        try {
-            if (plugins.heldBy(id).isEmpty()) {
-                List<String> removed = plugins.uninstall(id).stream().map(p -> p.id()).toList();
-                message = "Removed " + String.join(", ", removed);
-            } else {
-                List<String> later = plugins.uninstallOnNextStart(id);
-                message = String.join(", ", later) + " in use: removed on next start";
+        List<String> removed = new ArrayList<>();
+        List<String> later = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        for (String id : ids) {
+            if (removed.contains(id) || plugins.plugins().stream().noneMatch(p -> p.id().equals(id))) {
+                continue; // went with a plugin it depended on
             }
-        } catch (RuntimeException e) {
-            message = "Cannot remove " + id + ": " + e.getMessage();
+            try {
+                if (plugins.heldBy(id).isEmpty()) {
+                    plugins.uninstall(id).forEach(p -> removed.add(p.id()));
+                } else {
+                    later.addAll(plugins.uninstallOnNextStart(id));
+                }
+            } catch (RuntimeException e) {
+                errors.add("Cannot remove " + id + ": " + e.getMessage());
+            }
         }
+        List<String> parts = new ArrayList<>();
+        if (!removed.isEmpty()) {
+            parts.add("Removed " + String.join(", ", removed));
+        }
+        if (!later.isEmpty()) {
+            parts.add(String.join(", ", new LinkedHashSet<>(later)) + " in use: removed on next start");
+        }
+        parts.addAll(errors);
+        String message = String.join("; ", parts);
         status.setText(message);
         refresh();
         return message;
     }
 
     /**
-     * Asks the catalog what it offers that is not installed (it may use the network) and lists it in the
-     * "Available" tab. The Check button does this off the event dispatch thread.
+     * Asks the catalog what it offers that is not installed (it may use the network) and lists it as
+     * available. The panel does this off the event dispatch thread.
      *
      * @return the offered plugins
      */
@@ -122,84 +233,97 @@ public class PluginsPanel extends JPanel {
     }
 
     /**
-     * Installs the plugin selected in the "Available" tab, with the dependencies it lacks; it starts at once.
-     * The Install button does this off the event dispatch thread.
+     * Installs the plugins selected in the available list, with the dependencies they lack; they start at once
+     * and are selected in the installed list. The Install button does this off the event dispatch thread.
      *
      * @return what happened, also shown in the status line
      */
     public String installSelected() {
-        PluginArtifact selected = available.getSelectedValue();
-        if (selected == null) {
+        List<String> ids = available.getSelectedValuesList().stream().map(PluginArtifact::id).toList();
+        if (ids.isEmpty()) {
             return "";
         }
-        String message = install(selected.id());
-        showStatus(message);
-        return message;
+        Result result = install(ids);
+        installed(result);
+        return result.message();
     }
 
-    /** Selects plugin {@code id} in the "Available" tab (for callers and tests). */
-    public void selectAvailable(String id) {
+    /** Selects plugins {@code ids} in the available list (for callers and tests). */
+    public void selectAvailable(String... ids) {
+        List<String> wanted = Arrays.asList(ids);
+        List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < offered.size(); i++) {
-            if (offered.get(i).id().equals(id)) {
-                available.setSelectedIndex(i);
-                return;
+            if (wanted.contains(offered.get(i).id())) {
+                indices.add(i);
             }
         }
+        available.setSelectedIndices(indices.stream().mapToInt(Integer::intValue).toArray());
     }
 
-    private String install(String id) {
-        try {
-            List<PluginInfo> added = plugins.install(id);
-            return added.isEmpty() ? id + " was already installed"
-                    : "Installed " + String.join(", ", added.stream().map(PluginInfo::id).toList());
-        } catch (RuntimeException e) {
-            return "Cannot install " + id + ": " + e.getMessage();
+    /** Selects plugins {@code ids} in the installed list, scrolling to the first (for callers and tests). */
+    public void select(String... ids) {
+        List<String> wanted = Arrays.asList(ids);
+        DefaultMutableTreeNode root = (DefaultMutableTreeNode) installed.getModel().getRoot();
+        List<TreePath> paths = new ArrayList<>();
+        for (int i = 0; i < root.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
+            if (child.getUserObject() instanceof PluginTrees.Node node && wanted.contains(node.pluginId())) {
+                paths.add(new TreePath(child.getPath()));
+            }
         }
+        installed.setSelectionPaths(paths.toArray(TreePath[]::new));
+        if (!paths.isEmpty()) {
+            installed.scrollPathToVisible(paths.get(0));
+        }
+    }
+
+    /** The installed list, for tests. */
+    JTree installedTree() {
+        return installed;
+    }
+
+    private record Result(String message, List<String> installed) {
+    }
+
+    private Result install(List<String> ids) {
+        List<String> added = new ArrayList<>();
+        List<String> parts = new ArrayList<>();
+        for (String id : ids) {
+            try {
+                List<PluginInfo> infos = plugins.install(id);
+                if (infos.isEmpty()) {
+                    parts.add(id + " was already installed");
+                }
+                infos.forEach(p -> added.add(p.id()));
+            } catch (RuntimeException e) {
+                parts.add("Cannot install " + id + ": " + e.getMessage());
+            }
+        }
+        if (!added.isEmpty()) {
+            parts.add(0, "Installed " + String.join(", ", added));
+        }
+        return new Result(String.join("; ", parts), added);
+    }
+
+    /** Shows an installation: the new plugins leave the available list and are selected where they arrived. */
+    private void installed(Result result) {
+        status.setText(result.message());
+        refresh();
+        select(result.installed().toArray(String[]::new));
+    }
+
+    private void recheck() {
+        background("Checking the catalog...", plugins::available, found -> {
+            showAvailable(found);
+            status.setText(found.isEmpty() ? "The catalog offers nothing that is not installed"
+                    : found.size() + " available");
+        });
     }
 
     private void showAvailable(List<PluginArtifact> found) {
         offered.clear();
         found.forEach(offered::addElement);
         install.setEnabled(false);
-    }
-
-    private void showStatus(String message) {
-        status.setText(message);
-        refresh();
-        List<String> loaded = plugins.plugins().stream().map(PluginInfo::id).toList();
-        for (int i = offered.size() - 1; i >= 0; i--) {
-            if (loaded.contains(offered.get(i).id())) {
-                offered.remove(i);
-            }
-        }
-    }
-
-    private JPanel availableTab() {
-        available.setCellRenderer((list, value, index, selected, focus) -> {
-            String origin = plugins.origin(value);
-            JLabel label = new JLabel(value.id() + " " + value.version() + (origin.isBlank() ? "" : " — " + origin));
-            label.setOpaque(true);
-            label.setBackground(selected ? list.getSelectionBackground() : list.getBackground());
-            label.setForeground(selected ? list.getSelectionForeground() : list.getForeground());
-            return label;
-        });
-        available.addListSelectionListener(e -> install.setEnabled(available.getSelectedValue() != null));
-        install.setEnabled(false);
-        JButton check = new JButton("Check");
-        check.addActionListener(e -> background("Checking the catalog...", plugins::available, this::showAvailable));
-        install.addActionListener(e -> {
-            PluginArtifact selected = available.getSelectedValue();
-            if (selected != null) {
-                background("Installing " + selected.id() + "...", () -> install(selected.id()), this::showStatus);
-            }
-        });
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttons.add(check);
-        buttons.add(install);
-        JPanel tab = new JPanel(new BorderLayout());
-        tab.add(new JScrollPane(available), BorderLayout.CENTER);
-        tab.add(buttons, BorderLayout.SOUTH);
-        return tab;
     }
 
     /** Runs {@code work} off the event dispatch thread and hands its result to {@code done} back on it. */
@@ -224,31 +348,43 @@ public class PluginsPanel extends JPanel {
         }.execute();
     }
 
-    /** Selects the node of plugin {@code id} in the plugins tree (for callers and tests). */
-    public void select(String id) {
-        DefaultMutableTreeNode root = (DefaultMutableTreeNode) byPlugin.getModel().getRoot();
-        for (int i = 0; i < root.getChildCount(); i++) {
-            DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
-            if (child.getUserObject() instanceof PluginTrees.Node node && id.equals(node.pluginId())) {
-                byPlugin.setSelectionPath(new TreePath(child.getPath()));
-                return;
+    private List<String> selectedPlugins() {
+        TreePath[] paths = installed.getSelectionPaths();
+        Set<String> ids = new LinkedHashSet<>();
+        if (paths != null) {
+            for (TreePath path : paths) {
+                if (path.getPathCount() >= 2
+                        && ((DefaultMutableTreeNode) path.getPathComponent(1)).getUserObject()
+                        instanceof PluginTrees.Node node && node.pluginId() != null) {
+                    ids.add(node.pluginId());
+                }
             }
         }
+        return List.copyOf(ids);
     }
 
-    private String selectedPlugin() {
-        TreePath path = byPlugin.getSelectionPath();
-        if (path == null || path.getPathCount() < 2) {
-            return null;
+    /** The keys of the expanded top-level nodes, to open them again after a rebuild. */
+    private static Set<String> expanded(JTree tree, Function<PluginTrees.Node, String> key) {
+        Set<String> expanded = new LinkedHashSet<>();
+        DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+        for (int i = 0; i < root.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
+            if (tree.isExpanded(new TreePath(child.getPath())) && child.getUserObject() instanceof PluginTrees.Node n) {
+                expanded.add(key.apply(n));
+            }
         }
-        Object top = ((DefaultMutableTreeNode) path.getPathComponent(1)).getUserObject();
-        return top instanceof PluginTrees.Node node ? node.pluginId() : null;
+        return expanded;
     }
 
-    private static void show(JTree tree, DefaultMutableTreeNode root) {
+    /** Shows {@code root} with its top-level nodes collapsed, except those that were expanded before. */
+    private static void show(JTree tree, DefaultMutableTreeNode root, Set<String> expanded,
+                             Function<PluginTrees.Node, String> key) {
         tree.setModel(new DefaultTreeModel(root));
-        for (int row = 0; row < tree.getRowCount(); row++) {
-            tree.expandRow(row);
+        for (int i = 0; i < root.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
+            if (child.getUserObject() instanceof PluginTrees.Node n && expanded.contains(key.apply(n))) {
+                tree.expandPath(new TreePath(child.getPath()));
+            }
         }
     }
 

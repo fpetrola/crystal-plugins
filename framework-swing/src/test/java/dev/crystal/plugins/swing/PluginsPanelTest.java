@@ -3,11 +3,13 @@ package dev.crystal.plugins.swing;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import javax.swing.SwingUtilities;
 import javax.swing.tree.DefaultMutableTreeNode;
 
 import org.junit.jupiter.api.Test;
@@ -69,6 +71,18 @@ class PluginsPanelTest {
         return plugins;
     }
 
+    /** Runs {@code test} on the event dispatch thread, as the panel expects (its own refreshes run there too). */
+    private static void onEdt(Runnable test) throws Exception {
+        try {
+            SwingUtilities.invokeAndWait(test);
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof Error error) {
+                throw error;
+            }
+            throw (Exception) e.getCause();
+        }
+    }
+
     private static List<String> lines(DefaultMutableTreeNode root) {
         List<String> lines = new ArrayList<>();
         for (Object o : Collections.list(root.depthFirstEnumeration())) {
@@ -97,19 +111,20 @@ class PluginsPanelTest {
     }
 
     @Test
-    void theCatalogOffersWhatIsNotInstalledAndInstallsIt() {
+    void theCatalogOffersWhatIsNotInstalledAndInstallsIt() throws Exception {
         PluginJars.plugin("csv", "1.0.0").withProcessor().source("acme.csv.Exporter", exporter("csv", ""))
                 .buildInto(repo);
         PluginJars.plugin("md", "2.0.0").withProcessor().source("acme.md.Exporter", exporter("md", ""))
                 .buildInto(repo);
         try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).build()) {
             plugins.start();
-            PluginsPanel panel = new PluginsPanel(plugins);
-
-            assertEquals(List.of("csv", "md"), panel.checkAvailable().stream().map(a -> a.id()).toList(),
-                    "nothing installed yet: the catalog offers both");
-            panel.selectAvailable("md");
-            assertEquals("Installed md", panel.installSelected());
+            onEdt(() -> {
+                PluginsPanel panel = new PluginsPanel(plugins);
+                assertEquals(List.of("csv", "md"), panel.checkAvailable().stream().map(a -> a.id()).toList(),
+                        "nothing installed yet: the catalog offers both");
+                panel.selectAvailable("md");
+                assertEquals("Installed md", panel.installSelected());
+            });
 
             assertEquals(List.of("csv"), plugins.available().stream().map(a -> a.id()).toList());
             assertEquals("directory(" + repo + ")", plugins.origin(plugins.available().get(0)),
@@ -119,18 +134,48 @@ class PluginsPanelTest {
     }
 
     @Test
-    void removingIsImmediateWhenFreeAndDeferredWhenHeld() {
+    void removingIsImmediateWhenFreeAndDeferredWhenHeld() throws Exception {
         try (PluginService plugins = started()) {
             Screen screen = plugins.create(Screen.class);
-            PluginsPanel panel = new PluginsPanel(plugins);
+            onEdt(() -> {
+                PluginsPanel panel = new PluginsPanel(plugins);
+                panel.select("fast");
+                assertEquals("fast in use: removed on next start", panel.removeSelected());
+                assertTrue(lines(PluginTrees.byPlugin(plugins)).contains("fast 1.0.0 (removed on next start)"));
 
-            panel.select("fast");
-            assertEquals("fast in use: removed on next start", panel.removeSelected());
-            assertTrue(lines(PluginTrees.byPlugin(plugins)).contains("fast 1.0.0 (removed on next start)"));
-
-            panel.select("tsv");
-            assertEquals("Removed tsv", panel.removeSelected());
+                panel.select("tsv");
+                assertEquals("Removed tsv", panel.removeSelected());
+            });
             assertEquals("fast", screen.exporter.format());
+        }
+    }
+
+    @Test
+    void severalMoveAtOnceAndTheNewOnesAreSelectedInACollapsedList() throws Exception {
+        PluginJars.plugin("csv", "1.0.0").withProcessor().source("acme.csv.Exporter", exporter("csv", ""))
+                .buildInto(repo);
+        PluginJars.plugin("md", "2.0.0").withProcessor().source("acme.md.Exporter", exporter("md", ""))
+                .buildInto(repo);
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).build()) {
+            plugins.start();
+            onEdt(() -> {
+                PluginsPanel panel = new PluginsPanel(plugins);
+                panel.checkAvailable();
+
+                panel.selectAvailable("csv", "md");
+                assertEquals("Installed csv, md", panel.installSelected());
+                assertEquals(2, panel.installedTree().getRowCount(), "one line per plugin: children collapsed");
+                assertEquals(2, panel.installedTree().getSelectionCount(), "what just arrived is selected");
+
+                panel.installedTree().expandRow(0);
+                panel.refresh();
+                assertTrue(panel.installedTree().isExpanded(0), "a refresh keeps what the user opened");
+                assertEquals(2, panel.installedTree().getSelectionCount(), "and what the user selected");
+
+                panel.select("csv", "md");
+                assertEquals("Removed csv, md", panel.removeSelected());
+            });
+            assertTrue(plugins.plugins().isEmpty());
         }
     }
 }
