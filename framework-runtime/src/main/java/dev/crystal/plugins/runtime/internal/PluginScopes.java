@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import com.google.inject.Injector;
 
 import dev.crystal.plugins.api.HasLifecycle;
+import dev.crystal.plugins.api.Replaces;
 
 /**
  * The Guice half of the mirrored isolation: one child injector per started plugin.
@@ -71,10 +72,13 @@ public final class PluginScopes {
         Injector injector = root.createChildInjector(planner.plan(implementations, List.of(), id));
         List<Object> instances = new ArrayList<>(implementations.size());
         List<Contribution> contributions = new ArrayList<>(implementations.size());
+        String version = plugin.getDescriptor().getVersion();
         for (Class<?> type : implementations) {
             Object instance = injector.getInstance(type);
             instances.add(instance);
-            contributions.add(new Contribution(id, instance, Set.copyOf(Roles.of(type))));
+            Replaces replaces = type.getAnnotation(Replaces.class);
+            contributions.add(new Contribution(id, version, instance, Set.copyOf(Roles.of(type)),
+                    replaces == null ? List.of() : List.of(replaces.value())));
         }
 
         List<HasLifecycle> started = new ArrayList<>();

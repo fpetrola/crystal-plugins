@@ -13,9 +13,10 @@ import java.lang.annotation.Target;
  * implementation of the shared role(s) contributed by that plugin, or a qualified id
  * {@code "plugin-id:fully.qualified.ClassName"} to target a single class.
  *
- * <p>Replacement is <strong>reversible</strong>: the replaced implementation is hidden, not removed. If the
- * replacing plugin is stopped or unloaded, the replaced one becomes visible again. The default
- * conflict resolution (milestone 6) gives {@code @Replaces} precedence over version ordering.
+ * <p>Replacement is <strong>reversible</strong> and limited to the roles both implement: the replaced
+ * implementation keeps running but is hidden from every view of those roles, and becomes visible again as
+ * soon as the replacing one is no longer active. This is the first rule of
+ * {@link ConflictResolver#standard()}; an application with its own {@link ConflictResolver} decides for itself.
  *
  * <p>This is one of the few manual annotations: it records a real decision the build cannot infer.
  */

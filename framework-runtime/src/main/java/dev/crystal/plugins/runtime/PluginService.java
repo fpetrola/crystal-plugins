@@ -24,6 +24,7 @@ import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.Stage;
 
+import dev.crystal.plugins.api.ConflictResolver;
 import dev.crystal.plugins.api.PluginArtifact;
 import dev.crystal.plugins.api.PluginSource;
 import dev.crystal.plugins.runtime.internal.CrystalPluginManager;
@@ -63,13 +64,14 @@ public final class PluginService implements AutoCloseable {
     private final boolean ownsCache;
     private final PluginInstaller installer;
     private final CrystalPluginManager manager;
-    private final RoleRegistry registry = new RoleRegistry();
+    private final RoleRegistry registry;
     private final PluginScopes scopes;
     private List<PluginArtifact> active = List.of();
     private boolean started;
     private boolean closed;
 
     private PluginService(Builder builder) {
+        this.registry = new RoleRegistry(builder.conflictResolver);
         this.ownsCache = builder.cacheDirectory == null;
         try {
             this.cache = new PluginCache(ownsCache
@@ -202,8 +204,10 @@ public final class PluginService implements AutoCloseable {
     }
 
     /**
-     * Live, read-only view of every active implementation of {@code role}. The same set keeps reflecting
-     * plugins as they start and stop; iterate it, do not copy it.
+     * Live, read-only view of the active implementations of {@code role} that the {@link ConflictResolver}
+     * lets through, most preferred first (by default: minus the ones replaced with {@code @Replaces}, highest
+     * version first). The same set keeps reflecting plugins as they start and stop, and replacements as they
+     * come and go; iterate it, do not copy it.
      *
      * @throws IllegalArgumentException if {@code role} is not a {@code @RoleInterface}
      */
@@ -214,7 +218,9 @@ public final class PluginService implements AutoCloseable {
 
     /**
      * Creates an application object, injecting its {@code jakarta.inject.Inject} dependencies: exposed host
-     * services, {@code Set<SomeRole>} (live) and single roles. The application never touches the injector.
+     * services, {@code Set<SomeRole>} (live), a single {@code SomeRole} (the preferred implementation when the
+     * object is created) and {@code Provider<SomeRole>} (the preferred one on every {@code get()}). The
+     * application never touches the injector.
      */
     public <T> T create(Class<T> type) {
         checkOpen();
@@ -293,6 +299,7 @@ public final class PluginService implements AutoCloseable {
     public static final class Builder {
         private PluginSource source;
         private Path cacheDirectory;
+        private ConflictResolver conflictResolver = ConflictResolver.standard();
         private final Map<Class<?>, Object> exposed = new LinkedHashMap<>();
 
         private Builder() {
@@ -315,6 +322,15 @@ public final class PluginService implements AutoCloseable {
          */
         public Builder cacheDirectory(Path cacheDirectory) {
             this.cacheDirectory = Objects.requireNonNull(cacheDirectory);
+            return this;
+        }
+
+        /**
+         * How to choose among several implementations of a role. Defaults to
+         * {@link ConflictResolver#standard()}: {@code @Replaces} wins, then the highest version.
+         */
+        public Builder conflictResolver(ConflictResolver conflictResolver) {
+            this.conflictResolver = Objects.requireNonNull(conflictResolver);
             return this;
         }
 

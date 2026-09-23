@@ -28,7 +28,7 @@ try (PluginService plugins = PluginService.builder()
 
 | Artefacto                                         | Para quién          | Contenido                                                                     |
 |---------------------------------------------------|---------------------|-------------------------------------------------------------------------------|
-| `framework-api`                                   | autores + app       | `@RoleInterface`, `@Replaces`, `@Needs`, `HasLifecycle`, `PluginSource`. Depende solo de `jakarta.inject-api`. |
+| `framework-api`                                   | autores + app       | `@RoleInterface`, `@Replaces`, `@Needs`, `HasLifecycle`, `PluginSource`, `ConflictResolver`. Depende solo de `jakarta.inject-api`. |
 | `framework-build-plugin/framework-build-processor` | build del autor     | Annotation processor de javac, sin dependencias.                              |
 | `framework-build-plugin/framework-build-core`     | build del autor     | Análisis de bytecode (ASM), dependencias ancladas y escritura del jar. No depende de ninguna herramienta de build. |
 | `framework-build-plugin/framework-maven-plugin`   | build del autor     | Adaptador de Maven: conecta el processor y le pasa el proyecto a `framework-build-core`. |
@@ -42,7 +42,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (37 tests)
+mvn install                       # framework (52 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -89,8 +89,8 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
 - **`HasLifecycle` con métodos `default`.** Es opt-in y reemplaza `extends org.pf4j.Plugin`.
 - **`PluginSource` = listar + abrir bytes, con sha256 obligatorio.** Todo lo de red queda del lado de la
   app. El hash es a la vez verificación de integridad y clave de caché (hito 4).
-- `@Replaces` acepta un id de plugin o `plugin-id:Clase`. `ConflictResolver` no está definido todavía: se
-  diseña en el hito 6, junto con su uso, para no fijar una forma a ciegas.
+- `@Replaces` acepta un id de plugin o `plugin-id:Clase`. `ConflictResolver` se definió recién en el
+  hito 6, junto con su uso, para no fijar una forma a ciegas.
 
 ### Hito 2: plugin de build
 
@@ -229,6 +229,35 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
     se cumple, y en cascada a los que dependen de él. El motivo queda en `plugins()` (por ejemplo
     `requires csv@1.0.0 but 2.0.0 is installed`). El grafo, el orden y los chequeos siguen siendo de PF4J.
 
+### Hito 6: `ConflictResolver` y `@Replaces` reversible
+
+- **Qué es un conflicto.** Muchos roles son naturalmente múltiples (todos los `Peripheral` conviven), así
+  que el resolver no elige "uno ganador": decide qué implementaciones son *visibles* y en qué orden de
+  preferencia. Las vistas `Set<Rol>` muestran ese resultado en ese orden, y un `@Inject Rol` recibe la
+  primera.
+- **El resolver estándar** hace lo que pide el enunciado:
+  - **`@Replaces` gana.** Una implementación reemplazada por otra activa del mismo rol se oculta, solo
+    para los roles que comparten: si el plugin reemplazado aporta además un `Peripheral`, ese sigue
+    visible. Las cadenas funcionan (C reemplaza a B y B a A: queda C). Los reemplazos que forman un ciclo
+    se ignoran, en vez de ocultar a todos.
+  - **Después, la mayor versión** (precedencia SemVer, con las pre-releases antes que la release). A
+    igual versión desempata el id, así el orden es siempre el mismo.
+- **Reversible de verdad.** Lo reemplazado no se detiene: sigue activo y oculto. El registro recalcula
+  con cada cambio, así que cuando lo que lo reemplazaba deja de estar activo vuelve a aparecer, incluso
+  en las vistas que ya se habían entregado. Un reemplazo que llega con `install()` oculta al original en
+  el momento. Uno que falla al arrancar no reemplaza nada.
+- **Sin costo al leer.** El resultado se calcula una vez por rol y por snapshot (copy-on-write) y se
+  descarta cuando algo cambia. Iterar un `Set` en un loop caliente no llama al resolver.
+- **Uno fijo o uno que sigue los cambios:** `@Inject Rol` se resuelve una vez, al crear el objeto;
+  `@Inject Provider<Rol>` (JSR-330 estándar) se resuelve en cada `get()`, así que sigue los reemplazos y
+  las versiones que llegan.
+- **La política es de la app.** Se inyecta con `builder().conflictResolver(...)`. Es una interfaz
+  funcional sobre `RoleImplementation` (instancia, plugin, versión, `@Replaces`), así que se puede
+  escribir como lambda y componer con `ConflictResolver.standard()` para conservar el resto del
+  comportamiento. El registro verifica que el resolver solo devuelva implementaciones que recibió.
+- **De dónde sale `@Replaces`:** el runtime lo lee de la clase, que tiene retención `RUNTIME`. Así vale
+  también para el camino manual, y el campo `replaces` del JSON queda como informativo.
+
 ### Instalar sin reiniciar: `install(pluginId)`
 
 Resuelve el flujo "falta el plugin que lee este archivo: lo traigo y lo abro". Qué plugin resuelve qué es
@@ -249,8 +278,11 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 ## Estado y límites conocidos
 
-- Hechos: hitos 1 a 5 e `install(pluginId)`. Tests: runtime 24, build core 9, processor 4. Además,
-  `examples/` con dos apps y un sub-plugin (4 tests de punta a punta).
+- Hechos: hitos 1 a 6 e `install(pluginId)`. Tests: runtime 32, build core 9, processor 4, API 7.
+  Además, `examples/` con dos apps y un sub-plugin (4 tests de punta a punta).
+- **Reversibilidad a nivel servicio:** el mecanismo está y está probado (registro, `install`, falla al
+  arrancar), pero todavía no hay una operación pública para detener o sacar un plugin puntual. Llega con
+  el unload del hito 7.
 - **Varios procesos sobre la misma caché:** todas las escrituras son atómicas, pero no hay un lock entre
   procesos. Si dos procesos actualizan a la vez, gana el último; los dos estados son consistentes y, en
   el peor caso, un jar se descarga dos veces.

@@ -39,7 +39,9 @@ Una clase que implementa un rol pero no cumple esto (un decorador, una variante 
 parámetros, un helper interno) **no** es una extensión: el framework no la crea y no va al índice.
 
 Los roles se determinan por reflexión sobre la clase, así que el índice no tiene que decir qué rol
-implementa cada una.
+implementa cada una. Lo mismo `@Replaces`: el runtime lo lee de la clase (retención `RUNTIME`). Su valor
+es un id de plugin (reemplaza todas las implementaciones de ese plugin para los roles compartidos) o
+`plugin-id:nombre.binario.DeLaClase` (reemplaza solo esa clase).
 
 **Ejemplo mínimo escrito a mano**
 
