@@ -43,7 +43,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (81 tests)
+mvn install                       # framework (82 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -384,6 +384,24 @@ class GameBrowser {
 - **`@Inject` de Guice también cuenta** (`com.google.inject.Inject`), además de `jakarta` y `javax`, para
   decidir si una clase es extensión: los plugins se construyen con Guice, que lo acepta.
 
+### El modelo para un panel de plugins
+
+Lo que una app muestra en su panel de configuración lo da el framework: la app no abre jars.
+
+- **`plugins()`** devuelve, por cada plugin, además del id, la versión y el estado: sus extensiones (clase,
+  roles que implementa, `@Replaces`), los roles que **define** para sub-plugins, sus dependencias
+  (`id@versión`) y la versión de `framework-api` con que se construyó.
+- **`roleTree()`** devuelve, por cada rol, quién lo define (un plugin o la app) y quién lo implementa: de
+  qué plugin viene cada implementación y si está visible u oculta por el `ConflictResolver` (un
+  `@Replaces`). Es el árbol de plugins y sub-plugins visto desde los roles.
+- Junto con `heldBy(id)` y `pendingRemovals()` alcanza para una lista con "se puede sacar ahora" o "se
+  va al arrancar".
+- **Sale del estado real,** no de `plugin-metadata.json`: el índice de extensiones de PF4J, las clases
+  cargadas, el manifiesto, `roles.idx` y el registro. Por eso vale también para plugins con metadata
+  escrita a mano.
+- **Nada gráfico en el core.** Un panel de referencia (Swing, por ejemplo) sería un artefacto opcional
+  aparte.
+
 ### Plugins por defecto dentro de la aplicación
 
 Una app puede traer sus plugins adentro y usarlos desde el primer arranque sin ir a internet.
@@ -428,7 +446,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 46, build core 11, processor 6, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 47, build core 11, processor 6, API 7, guice 5,
   harness 6. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

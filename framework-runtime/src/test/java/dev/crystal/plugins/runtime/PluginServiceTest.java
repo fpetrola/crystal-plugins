@@ -98,8 +98,9 @@ class PluginServiceTest {
         try (PluginService plugins = service(new Journal())) {
             plugins.start();
             assertEquals("csv", plugins.roles(ReportExporter.class).iterator().next().format());
-            assertEquals(List.of(new PluginInfo("csv", "2.0.0", PluginInfo.Status.STARTED, java.util.Optional.empty())),
-                    plugins.plugins());
+            PluginInfo csv = plugins.plugins().get(0);
+            assertEquals(List.of("csv", "2.0.0", PluginInfo.Status.STARTED),
+                    List.of(csv.id(), csv.version(), csv.status()));
         }
     }
 

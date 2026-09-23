@@ -178,6 +178,28 @@ public final class RoleRegistry {
         return List.copyOf(result);
     }
 
+    /** One active implementation of one role, and whether the resolver lets it be seen. */
+    public record Entry(Class<?> role, String pluginId, Object instance, boolean visible) {
+    }
+
+    /** Every role with an active implementation: visible ones in preference order, then the hidden ones. */
+    public List<Entry> entries() {
+        Snapshot current = snapshot;
+        Set<Class<?>> roles = new java.util.LinkedHashSet<>();
+        current.contributions().forEach(c -> roles.addAll(c.roles()));
+        List<Entry> entries = new ArrayList<>();
+        for (Class<?> role : roles) {
+            List<Contribution> visible = resolved(role);
+            visible.forEach(c -> entries.add(new Entry(role, c.pluginId(), c.instance(), true)));
+            for (Contribution c : current.contributions()) {
+                if (c.roles().contains(role) && visible.stream().noneMatch(v -> v == c)) {
+                    entries.add(new Entry(role, c.pluginId(), c.instance(), false));
+                }
+            }
+        }
+        return entries;
+    }
+
     /** The visible implementations of {@code role}, most preferred first, in the current snapshot. */
     List<Contribution> resolved(Class<?> role) {
         Snapshot current = snapshot;

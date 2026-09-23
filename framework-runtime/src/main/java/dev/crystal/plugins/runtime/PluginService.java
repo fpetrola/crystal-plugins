@@ -347,14 +347,82 @@ public final class PluginService implements AutoCloseable {
     public List<PluginInfo> plugins() {
         List<PluginInfo> result = new ArrayList<>();
         for (PluginWrapper plugin : manager.getPlugins()) {
-            result.add(new PluginInfo(plugin.getPluginId(), plugin.getDescriptor().getVersion(),
-                    status(plugin), Optional.ofNullable(plugin.getFailedException())));
+            result.add(describe(plugin));
         }
         for (CrystalPluginManager.Rejection rejection : manager.rejections()) {
             result.add(new PluginInfo(rejection.pluginId(), rejection.version(), PluginInfo.Status.FAILED,
                     Optional.of(rejection.failure())));
         }
         return result;
+    }
+
+    /**
+     * Every role that has an active implementation, sorted by name: who defines it (a plugin, or the application)
+     * and its implementations, each with the plugin it comes from and whether it is visible or hidden by the
+     * {@link ConflictResolver}. Together with {@link #plugins()}, the model of a plugin panel.
+     */
+    public List<RoleInfo> roleTree() {
+        Map<Class<?>, List<RoleInfo.Implementation>> byRole = new LinkedHashMap<>();
+        for (RoleRegistry.Entry e : registry.entries()) {
+            byRole.computeIfAbsent(e.role(), r -> new ArrayList<>()).add(
+                    new RoleInfo.Implementation(e.pluginId(), e.instance().getClass().getName(), e.visible()));
+        }
+        List<RoleInfo> tree = new ArrayList<>();
+        byRole.forEach((role, implementations) -> tree.add(new RoleInfo(role.getName(), definer(role),
+                implementations)));
+        tree.sort(Comparator.comparing(RoleInfo::role));
+        return tree;
+    }
+
+    private Optional<String> definer(Class<?> role) {
+        return manager.getPlugins().stream().filter(p -> p.getPluginClassLoader() == role.getClassLoader())
+                .map(PluginWrapper::getPluginId).findFirst();
+    }
+
+    private PluginInfo describe(PluginWrapper plugin) {
+        List<PluginInfo.ExtensionInfo> extensions = new ArrayList<>();
+        for (String className : new java.util.TreeSet<>(manager.getExtensionClassNames(plugin.getPluginId()))) {
+            try {
+                Class<?> type = Class.forName(className, false, plugin.getPluginClassLoader());
+                List<String> roles = Roles.of(type).stream().map(Class::getName).toList();
+                dev.crystal.plugins.api.Replaces replaces = type.getAnnotation(dev.crystal.plugins.api.Replaces.class);
+                if (!roles.isEmpty()) {
+                    extensions.add(new PluginInfo.ExtensionInfo(className, roles,
+                            replaces == null ? List.of() : List.of(replaces.value())));
+                }
+            } catch (ClassNotFoundException | LinkageError e) {
+                log.debug("Cannot describe extension {} of {}", className, plugin.getPluginId(), e);
+            }
+        }
+        List<String> dependencies = plugin.getDescriptor().getDependencies().stream()
+                .map(d -> d.getPluginVersionSupport() == null || "*".equals(d.getPluginVersionSupport())
+                        ? d.getPluginId() + (d.isOptional() ? "?" : "")
+                        : d.getPluginId() + "@" + d.getPluginVersionSupport())
+                .toList();
+        List<String> defines = new ArrayList<>();
+        Optional<String> apiVersion = Optional.empty();
+        try (java.util.jar.JarFile jar = new java.util.jar.JarFile(plugin.getPluginPath().toFile())) {
+            java.util.jar.Manifest manifest = jar.getManifest();
+            if (manifest != null) {
+                apiVersion = Optional.ofNullable(manifest.getMainAttributes().getValue("Crystal-Api-Version"));
+            }
+            java.util.zip.ZipEntry index = jar.getEntry("META-INF/crystal/roles.idx");
+            if (index != null) {
+                try (java.io.InputStream in = jar.getInputStream(index)) {
+                    for (String line : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+                            .split("\\R")) {
+                        String entry = line.replaceFirst("#.*", "").strip();
+                        if (!entry.isEmpty()) {
+                            defines.add(entry);
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            log.debug("Cannot read {}", plugin.getPluginPath(), e);
+        }
+        return new PluginInfo(plugin.getPluginId(), plugin.getDescriptor().getVersion(), status(plugin),
+                Optional.ofNullable(plugin.getFailedException()), extensions, defines, dependencies, apiVersion);
     }
 
     /** Stops every plugin (dependents first) and releases their classloaders and injectors. */
