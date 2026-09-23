@@ -5,22 +5,28 @@ import java.awt.FlowLayout;
 import java.util.List;
 import java.util.Objects;
 
+import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTree;
+import javax.swing.SwingWorker;
 import javax.swing.ToolTipManager;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 
+import dev.crystal.plugins.api.PluginArtifact;
+import dev.crystal.plugins.runtime.PluginInfo;
 import dev.crystal.plugins.runtime.PluginService;
 
 /**
  * A reference panel for a Swing application's plugin settings: what each plugin brings, the role tree, and
- * removing a plugin (now if nothing holds it, otherwise on the next start). Everything it shows comes from
+ * removing a plugin (now if nothing holds it, otherwise on the next start), and installing what the catalog
+ * (the service's {@code PluginSource}) offers. Everything it shows comes from
  * {@link PluginService}; drop it in a dialog or a tab:
  *
  * <pre>{@code
@@ -36,6 +42,9 @@ public class PluginsPanel extends JPanel {
     private final JTree byRole = tree();
     private final JButton remove = new JButton("Remove");
     private final JLabel status = new JLabel(" ");
+    private final DefaultListModel<PluginArtifact> offered = new DefaultListModel<>();
+    private final JList<PluginArtifact> available = new JList<>(offered);
+    private final JButton install = new JButton("Install");
 
     public PluginsPanel(PluginService plugins) {
         super(new BorderLayout());
@@ -44,6 +53,7 @@ public class PluginsPanel extends JPanel {
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Plugins", new JScrollPane(byPlugin));
         tabs.addTab("Roles", new JScrollPane(byRole));
+        tabs.addTab("Available", availableTab());
         add(tabs, BorderLayout.CENTER);
 
         JButton refresh = new JButton("Refresh");
@@ -95,6 +105,120 @@ public class PluginsPanel extends JPanel {
         status.setText(message);
         refresh();
         return message;
+    }
+
+    /**
+     * Asks the catalog what it offers that is not installed (it may use the network) and lists it in the
+     * "Available" tab. The Check button does this off the event dispatch thread.
+     *
+     * @return the offered plugins
+     */
+    public List<PluginArtifact> checkAvailable() {
+        List<PluginArtifact> found = plugins.available();
+        showAvailable(found);
+        return found;
+    }
+
+    /**
+     * Installs the plugin selected in the "Available" tab, with the dependencies it lacks; it starts at once.
+     * The Install button does this off the event dispatch thread.
+     *
+     * @return what happened, also shown in the status line
+     */
+    public String installSelected() {
+        PluginArtifact selected = available.getSelectedValue();
+        if (selected == null) {
+            return "";
+        }
+        String message = install(selected.id());
+        showStatus(message);
+        return message;
+    }
+
+    /** Selects plugin {@code id} in the "Available" tab (for callers and tests). */
+    public void selectAvailable(String id) {
+        for (int i = 0; i < offered.size(); i++) {
+            if (offered.get(i).id().equals(id)) {
+                available.setSelectedIndex(i);
+                return;
+            }
+        }
+    }
+
+    private String install(String id) {
+        try {
+            List<PluginInfo> added = plugins.install(id);
+            return added.isEmpty() ? id + " was already installed"
+                    : "Installed " + String.join(", ", added.stream().map(PluginInfo::id).toList());
+        } catch (RuntimeException e) {
+            return "Cannot install " + id + ": " + e.getMessage();
+        }
+    }
+
+    private void showAvailable(List<PluginArtifact> found) {
+        offered.clear();
+        found.forEach(offered::addElement);
+        install.setEnabled(false);
+    }
+
+    private void showStatus(String message) {
+        status.setText(message);
+        refresh();
+        List<String> loaded = plugins.plugins().stream().map(PluginInfo::id).toList();
+        for (int i = offered.size() - 1; i >= 0; i--) {
+            if (loaded.contains(offered.get(i).id())) {
+                offered.remove(i);
+            }
+        }
+    }
+
+    private JPanel availableTab() {
+        available.setCellRenderer((list, value, index, selected, focus) -> {
+            JLabel label = new JLabel(value.id() + " " + value.version());
+            label.setOpaque(true);
+            label.setBackground(selected ? list.getSelectionBackground() : list.getBackground());
+            label.setForeground(selected ? list.getSelectionForeground() : list.getForeground());
+            return label;
+        });
+        available.addListSelectionListener(e -> install.setEnabled(available.getSelectedValue() != null));
+        install.setEnabled(false);
+        JButton check = new JButton("Check");
+        check.addActionListener(e -> background("Checking the catalog...", plugins::available, this::showAvailable));
+        install.addActionListener(e -> {
+            PluginArtifact selected = available.getSelectedValue();
+            if (selected != null) {
+                background("Installing " + selected.id() + "...", () -> install(selected.id()), this::showStatus);
+            }
+        });
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttons.add(check);
+        buttons.add(install);
+        JPanel tab = new JPanel(new BorderLayout());
+        tab.add(new JScrollPane(available), BorderLayout.CENTER);
+        tab.add(buttons, BorderLayout.SOUTH);
+        return tab;
+    }
+
+    /** Runs {@code work} off the event dispatch thread and hands its result to {@code done} back on it. */
+    private <T> void background(String working, java.util.function.Supplier<T> work,
+                                java.util.function.Consumer<T> done) {
+        status.setText(working);
+        new SwingWorker<T, Void>() {
+            @Override
+            protected T doInBackground() {
+                return work.get();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    done.accept(get());
+                } catch (Exception e) {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    status.setText("Failed: " + cause.getMessage());
+                }
+            }
+        }.execute();
     }
 
     /** Selects the node of plugin {@code id} in the plugins tree (for callers and tests). */

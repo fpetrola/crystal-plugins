@@ -97,6 +97,26 @@ class PluginsPanelTest {
     }
 
     @Test
+    void theCatalogOffersWhatIsNotInstalledAndInstallsIt() {
+        PluginJars.plugin("csv", "1.0.0").withProcessor().source("acme.csv.Exporter", exporter("csv", ""))
+                .buildInto(repo);
+        PluginJars.plugin("md", "2.0.0").withProcessor().source("acme.md.Exporter", exporter("md", ""))
+                .buildInto(repo);
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).build()) {
+            plugins.start();
+            PluginsPanel panel = new PluginsPanel(plugins);
+
+            assertEquals(List.of("csv", "md"), panel.checkAvailable().stream().map(a -> a.id()).toList(),
+                    "nothing installed yet: the catalog offers both");
+            panel.selectAvailable("md");
+            assertEquals("Installed md", panel.installSelected());
+
+            assertEquals(List.of("csv"), plugins.available().stream().map(a -> a.id()).toList());
+            assertTrue(lines(PluginTrees.byPlugin(plugins)).contains("md 2.0.0"), "running at once");
+        }
+    }
+
+    @Test
     void removingIsImmediateWhenFreeAndDeferredWhenHeld() {
         try (PluginService plugins = started()) {
             Screen screen = plugins.create(Screen.class);

@@ -227,6 +227,12 @@ public final class PluginInstaller {
         }
     }
 
+    /** What the source offers that is not installed, sorted by id. Changes nothing. */
+    public List<PluginArtifact> available() {
+        Set<String> installed = installedIds();
+        return byId(offer()).values().stream().filter(a -> !installed.contains(a.id())).toList();
+    }
+
     /** The ids in the installed set. */
     public Set<String> installedIds() {
         Set<String> ids = new TreeSet<>();

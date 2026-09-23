@@ -144,6 +144,18 @@ public final class PluginService implements AutoCloseable {
         return installer.installAll(inUse());
     }
 
+    /**
+     * What the {@link PluginSource} offers that is not installed, sorted by id: the "can be installed" list of a
+     * plugin window. Consults the source (it may use the network) and changes nothing; {@link #install} adds one.
+     *
+     * @throws IllegalStateException if no source is configured
+     * @throws PluginException       if the source cannot be read
+     */
+    public List<PluginArtifact> available() {
+        checkOpen();
+        return installer.available();
+    }
+
     private Set<String> inUse() {
         return active.stream().map(PluginArtifact::sha256).collect(Collectors.toSet());
     }

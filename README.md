@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (84 tests)
+mvn install                       # framework (85 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -407,6 +407,12 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
     "se va al próximo arranque", y un tooltip con dependencias, quién lo retiene y el motivo de una falla;
   - "Roles": rol y quién lo define → implementaciones, marcando las ocultas.
 
+  Y una tercera pestaña, "Available", con lo que ofrece el catálogo (la `PluginSource` del servicio) y
+  no está instalado: "Check" lo consulta, "Install" lo instala con sus dependencias y arranca en el
+  momento. Las dos cosas corren fuera del hilo de Swing, porque pueden ir a la red. Esa lista sale de
+  `PluginService.available()`, que consulta la fuente y no cambia nada (a diferencia de
+  `checkForUpdates()`).
+
   "Remove" desinstala en el momento si nada retiene el plugin, y si no lo deja para el próximo
   arranque; "Refresh" vuelve a leer el estado. Armar los árboles (`PluginTrees`) está separado de los
   widgets, así que se prueba sin pantalla.
@@ -456,7 +462,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
   separación entre catálogo e instalado. Tests: runtime 47, build core 11, processor 6, API 7, guice 5,
-  harness 6, swing 2. Además, `examples/` con dos apps, un sub-plugin, una app con su
+  harness 6, swing 3. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
   un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es
