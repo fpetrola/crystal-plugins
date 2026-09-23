@@ -84,6 +84,17 @@ public final class PluginJars {
         return this;
     }
 
+    /** Compiles into {@code classes} (like a plugin project's target/classes), without packaging. */
+    public Path compileInto(Path classes) {
+        try {
+            Files.createDirectories(classes);
+            compile(classes);
+            return classes;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     public Path buildInto(Path directory) {
         try {
             Path classes = Files.createTempDirectory(directory, id + "-classes");

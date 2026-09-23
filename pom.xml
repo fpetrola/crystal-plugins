@@ -17,6 +17,7 @@
         <module>framework-build-plugin</module>
         <module>framework-runtime</module>
         <module>framework-guice</module>
+        <module>framework-test-harness</module>
     </modules>
 
     <properties>

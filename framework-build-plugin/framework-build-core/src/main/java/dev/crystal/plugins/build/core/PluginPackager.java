@@ -33,6 +33,7 @@ public final class PluginPackager {
     static final String GENERIC_PLUGIN_CLASS = "dev.crystal.plugins.runtime.internal.RolePlugin";
     static final String FRAMEWORK_GROUP = "dev.crystal.plugins";
     static final String FRAMEWORK_API = "framework-api";
+    static final String ROLE_INTERFACE_CLASS = "dev/crystal/plugins/api/RoleInterface";
 
     private PluginPackager() {
     }
@@ -196,11 +197,10 @@ public final class PluginPackager {
         return result;
     }
 
+    /** The version of the classpath entry that provides the framework API (found by content, not coordinates). */
     private static String frameworkApiVersion(Classpath classpath) {
-        return classpath.entries().stream()
-                .filter(e -> FRAMEWORK_GROUP.equals(e.groupId()) && FRAMEWORK_API.equals(e.artifactId()))
+        return classpath.owner(ROLE_INTERFACE_CLASS)
                 .map(ClasspathEntry::version)
-                .findFirst()
                 .orElseThrow(() -> new BuildException(FRAMEWORK_GROUP + ":" + FRAMEWORK_API
                         + " is not on the compile classpath, but the plugin implements roles"));
     }

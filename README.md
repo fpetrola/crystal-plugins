@@ -35,7 +35,7 @@ try (PluginService plugins = PluginService.builder()
 | `framework-runtime`                               | app                 | `PluginService` + integración interna PF4J/Guice.                             |
 | `framework-guice` (opcional)                      | app con Guice propio | `PluginsModule`: los roles se inyectan en el injector de la app.             |
 | `app-api` (lo escribe cada app)                   | autores + app       | Interfaces-rol de la app; depende de `framework-api`.                         |
-| `framework-test-harness`                          | —                   | Hito 8.                                                                       |
+| `framework-test-harness`                          | autores (tests)     | `PluginHarness`: el plugin, solo, en un `PluginService` real y sin la app.     |
 
 `examples/` es un build aparte que hace de terceros: dos apps sin relación entre sí (un emulador con
 `Peripheral`, una app de reportes con `ReportExporter`), sus APIs y plugins para cada una, armados con
@@ -43,7 +43,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (71 tests)
+mvn install                       # framework (77 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -67,6 +67,15 @@ mvn install                       # framework (71 tests)
 
 Se puede declarar una sola vez en un POM padre: los módulos sin implementaciones de roles (APIs, la
 app) quedan intactos.
+
+Y para probarlo sin la app, con `framework-test-harness` en scope `test`:
+
+```java
+try (PluginHarness harness = PluginHarness.builder().expose(Clock.class, () -> 0L).start()) {
+    Peripheral beeper = harness.one(Peripheral.class);     // el plugin, en su propio classloader
+    assertEquals(0xBF, beeper.in(0xFE));
+}
+```
 
 El formato de lo que se genera es un contrato público: [docs/metadata-format.md](docs/metadata-format.md).
 
@@ -307,6 +316,32 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
   
   Con eso el classloader se recolecta apenas corre el GC, y el test lo verifica.
 
+### Hito 8: `framework-test-harness`
+
+- **El autor prueba su plugin solo, sin la app.** En un proyecto de plugin, que tiene su API como
+  `provided` y el plugin de build, un test hace `PluginHarness.start()`, pone dobles de los servicios del
+  host con `expose(...)` y usa el plugin por sus roles (`one(Rol)`, `roles(Rol)`, o `service()` para lo
+  demás).
+- **Fiel a producción.** El plugin corre en un `PluginService` real, en **su propio classloader** y cableado
+  como lo va a cablear el runtime. Así los errores de empaquetado (una API que viajó adentro del jar, una
+  dependencia que falta) aparecen en el test y no en la app.
+- **Empaqueta al vuelo con el mismo `PluginPackager` del build.** `mvn test` corre antes de `package`, así
+  que el jar todavía no existe: el harness arma uno desde `target/classes` con el mismo análisis de
+  bytecode, las mismas dependencias ancladas y la misma verificación de metadata vieja. Con `jar(ruta)`
+  prueba un jar ya construido (por ejemplo en tests de integración, después de `package`).
+- **Las dependencias entran como plugins.** Los jars del classpath de test que son plugins (tienen
+  `Plugin-Id`) se cargan como plugins, no como clases sueltas. Un sub-plugin se prueba con su padre sin
+  configurar nada, y así lo hace `examples/plugin-csv-semicolon`.
+- **Independiente del framework de tests.** Los problemas salen como `IllegalStateException`, con el
+  motivo: un plugin que no arrancó, clases compiladas sin el processor, un rol con cero o varias
+  implementaciones en `one()`.
+- **Un límite de fidelidad.** En un test todo el classpath es visible para el plugin a través del
+  classloader padre, así que una librería que en producción faltaría (no empaquetada y que el host no
+  provee) en el test aparece. El build ya avisa sobre esas librerías.
+- **Un ajuste que pidió el harness:** `PluginPackager` ahora encuentra `framework-api` por su contenido (la
+  entrada que tiene `RoleInterface`) y no por coordenadas Maven, porque el classpath de un test no las
+  tiene.
+
 ### Apps con su propio injector: `framework-guice`
 
 Una app que arma su grafo de objetos con Guice quiere que sus clases pidan `Set<Rol>` a **su** injector,
@@ -362,9 +397,10 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 ## Estado y límites conocidos
 
-- Hechos: hitos 1 a 7, `install(pluginId)`, el adaptador `framework-guice`, y la separación entre
-  catálogo e instalado. Tests: runtime 43, build core 10, processor 6, API 7, guice 5. Además, `examples/` con dos apps, un sub-plugin y una app con su
-  propio injector (6 tests de punta a punta).
+- Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
+  separación entre catálogo e instalado. Tests: runtime 43, build core 10, processor 6, API 7, guice 5,
+  harness 6. Además, `examples/` con dos apps, un sub-plugin, una app con su
+  propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
   un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es
   trabajo del `onStop()`, y de la vista hay que guardar la vista, no sus elementos.
