@@ -19,7 +19,7 @@ import com.google.inject.Key;
 import com.google.inject.name.Names;
 import com.google.inject.util.Modules;
 
-import dev.crystal.plugins.runtime.PluginException;
+import dev.crystal.plugins.runtime.PluginRetainedException;
 import dev.crystal.plugins.runtime.PluginJars;
 import dev.crystal.plugins.runtime.PluginService;
 import dev.crystal.plugins.runtime.PluginSources;
@@ -120,9 +120,8 @@ class PluginsModuleTest {
             Printer printer = injector.getInstance(Printer.class);
             GameBrowser browser = injector.getInstance(GameBrowser.class);
 
-            PluginException e = assertThrows(PluginException.class, () -> plugins.uninstall("csv"));
-            assertTrue(e.getMessage().contains("an application object (" + Printer.class.getName() + ")"),
-                    e.getMessage());
+            PluginRetainedException e = assertThrows(PluginRetainedException.class, () -> plugins.uninstall("csv"));
+            assertEquals(List.of(Printer.class.getName()), e.holders());
             assertEquals("csv", printer.exporter.format());
             assertTrue(browser.exporters.contains(printer.exporter), "sets and providers pin nothing");
         }
@@ -145,8 +144,8 @@ class PluginsModuleTest {
                     Modules.combine(plugins.snapshot(Contribution.class)), PluginsModule.of(plugins)));
 
             assertEquals("spectrum 128", injector.getInstance(Key.get(String.class, Names.named("board"))));
-            PluginException e = assertThrows(PluginException.class, () -> plugins.uninstall("board"));
-            assertTrue(e.getMessage().contains("holds an implementation of 'board'"), e.getMessage());
+            assertEquals(1, plugins.heldBy("board").size(), "held by the injector its module went into");
+            assertThrows(PluginRetainedException.class, () -> plugins.uninstall("board"));
         }
     }
 

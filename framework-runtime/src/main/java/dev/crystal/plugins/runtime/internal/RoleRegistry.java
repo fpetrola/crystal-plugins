@@ -118,27 +118,25 @@ public final class RoleRegistry {
     }
 
     /**
-     * Why the plugins {@code unloading} cannot be unloaded together: fixed references to their implementations
-     * held by plugins outside the set, or by application objects still alive. Empty when they are clean.
+     * Who holds fixed references to implementations of the plugins {@code unloading} from outside that set: plugins
+     * not in it ({@code plugin 'id'}) and application objects still alive (their class name). Empty when the set is
+     * clean, that is, can be unloaded now. Distinct, in discovery order.
      */
     public List<String> holdersOutside(Set<String> unloading) {
-        List<String> reasons = new ArrayList<>();
+        Set<String> holders = new java.util.LinkedHashSet<>();
         for (String owner : unloading) {
             for (String holder : pluginHolders.getOrDefault(owner, Set.of())) {
                 if (!unloading.contains(holder)) {
-                    reasons.add("plugin '" + holder + "' holds an implementation of '" + owner + "'");
+                    holders.add("plugin '" + holder + "'");
                 }
             }
-            List<ApplicationHolder> holders = applicationHolders.get(owner);
-            if (holders != null) {
-                holders.removeIf(h -> h.object().get() == null);
-                for (ApplicationHolder holder : holders) {
-                    reasons.add("an application object (" + holder.type() + ") holds an implementation of '"
-                            + owner + "'");
-                }
+            List<ApplicationHolder> alive = applicationHolders.get(owner);
+            if (alive != null) {
+                alive.removeIf(h -> h.object().get() == null);
+                alive.forEach(h -> holders.add(h.type()));
             }
         }
-        return reasons;
+        return List.copyOf(holders);
     }
 
     @SuppressWarnings("unchecked")

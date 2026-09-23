@@ -171,6 +171,10 @@ public final class PluginService implements AutoCloseable {
                     + "(before starting, checkForUpdates() installs what the source offers)");
         }
         if (manager.getPlugin(pluginId) != null) {
+            // Already running; if its removal was pending, this cancels it.
+            active.stream().filter(a -> a.id().equals(pluginId)).findFirst()
+                    .filter(a -> !installer.installedIds().contains(pluginId))
+                    .ifPresent(a -> installer.add(List.of(a)));
             return List.of();
         }
         Map<String, String> loaded = new LinkedHashMap<>();
@@ -202,25 +206,21 @@ public final class PluginService implements AutoCloseable {
      * implementations leave every {@link #roles} view at once; implementations they replaced come back.
      *
      * <p>Only a clean plugin is unloaded: if something outside the plugins being removed holds a fixed reference
-     * to one of their implementations (a single {@code @Inject Role} in another plugin, or in a live object made
-     * with {@link #create}), nothing is done and the exception says who. {@code Set<Role>} views and
-     * {@code Provider<Role>} never pin a plugin.
+     * to one of their implementations (a single {@code @Inject Role} in another plugin, or in a live object of the
+     * application, e.g. an injector a Guice-module role was installed in), nothing is done. {@link #heldBy} tells
+     * beforehand; {@link #uninstallOnNextStart} removes them when nothing can hold them any more.
+     * {@code Set<Role>} views and {@code Provider<Role>} never pin a plugin.
      *
      * @return the removed plugins, sub-plugins first, as {@code UNLOADED}
-     * @throws IllegalArgumentException if {@code pluginId} is not loaded
-     * @throws PluginException          if a removed plugin is still referenced from outside
+     * @throws IllegalArgumentException  if {@code pluginId} is not loaded
+     * @throws PluginRetainedException  if a removed plugin is still held from outside
      */
     public synchronized List<PluginInfo> uninstall(String pluginId) {
         checkOpen();
-        PluginWrapper plugin = manager.getPlugin(pluginId);
-        if (plugin == null) {
-            throw new IllegalArgumentException("Plugin '" + pluginId + "' is not loaded");
-        }
-        List<String> leavesFirst = manager.withDependents(pluginId);
+        List<String> leavesFirst = withDependents(pluginId);
         List<String> holders = registry.holdersOutside(Set.copyOf(leavesFirst));
         if (!holders.isEmpty()) {
-            throw new PluginException("Cannot uninstall " + leavesFirst + ": " + String.join("; ", holders)
-                    + " (inject Set<Role> or Provider<Role> where an implementation may go away)");
+            throw new PluginRetainedException(leavesFirst, holders);
         }
         List<PluginInfo> removed = leavesFirst.stream()
                 .map(id -> new PluginInfo(id, manager.getPlugin(id).getDescriptor().getVersion(),
@@ -231,6 +231,46 @@ public final class PluginService implements AutoCloseable {
         active = active.stream().filter(a -> !leavesFirst.contains(a.id())).toList();
         manager.unloadInOrder(leavesFirst);
         return removed;
+    }
+
+    /**
+     * Who would prevent {@link #uninstall}{@code (pluginId)} right now: {@code plugin 'id'} for another plugin, the
+     * class name for an application object, holding a fixed reference to an implementation of {@code pluginId} or of
+     * a plugin depending on it. Empty when it can be uninstalled now; no need to try and catch.
+     *
+     * @throws IllegalArgumentException if {@code pluginId} is not loaded
+     */
+    public List<String> heldBy(String pluginId) {
+        return registry.holdersOutside(Set.copyOf(withDependents(pluginId)));
+    }
+
+    /**
+     * Takes {@code pluginId}, and the plugins depending on it, out of the installed set without unloading them:
+     * they keep running until this service closes, and the next start does not load them. For plugins
+     * {@link #heldBy} something that lives as long as the application. {@link #install} of the same plugin before
+     * then cancels its removal.
+     *
+     * @return the plugins that will be gone on the next start, sub-plugins first
+     */
+    public synchronized List<String> uninstallOnNextStart(String pluginId) {
+        checkOpen();
+        List<String> leavesFirst = manager.getPlugin(pluginId) == null ? List.of(pluginId) : withDependents(pluginId);
+        installer.remove(Set.copyOf(leavesFirst));
+        return leavesFirst;
+    }
+
+    /** Plugins still running but no longer installed ({@link #uninstallOnNextStart}): gone on the next start. */
+    public Set<String> pendingRemovals() {
+        Set<String> installed = installer.installedIds();
+        return manager.getPlugins().stream().map(PluginWrapper::getPluginId)
+                .filter(id -> !installed.contains(id)).collect(Collectors.toCollection(java.util.TreeSet::new));
+    }
+
+    private List<String> withDependents(String pluginId) {
+        if (manager.getPlugin(pluginId) == null) {
+            throw new IllegalArgumentException("Plugin '" + pluginId + "' is not loaded");
+        }
+        return manager.withDependents(pluginId);
     }
 
     /**

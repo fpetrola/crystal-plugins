@@ -43,7 +43,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (77 tests)
+mvn install                       # framework (79 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -299,6 +299,16 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
   mientras siga vivo). Si algo que no se está descargando tiene una de esas referencias, `uninstall` no
   hace nada y el mensaje dice quién la tiene. Las vistas `Set<Rol>` y los `Provider<Rol>` nunca atan a un
   plugin, así que son la forma de inyectar lo que puede irse.
+- **Retenido es el caso normal en algunas apps, así que la API lo hace manejable.** Cuando los roles son
+  módulos de Guice que se instalan en un injector que vive lo mismo que la app, sus plugins quedan
+  retenidos mientras ese injector exista (en una adopción real, 37 de 52). Para eso hay tres cosas:
+  - `heldBy(id)` dice quién impide desinstalarlo ahora (vacío = se puede), así una lista se pinta sin
+    intentar y atrapar excepciones;
+  - `uninstallOnNextStart(id)` lo saca del conjunto instalado junto con sus dependientes, sin descargarlo:
+    sigue corriendo hasta cerrar el servicio, `pendingRemovals()` dice qué se va a ir, y un `install(id)`
+    lo cancela. Es estado del propio conjunto instalado (cargado pero no instalado), no un archivo aparte;
+  - `uninstall` rechaza con un `PluginRetainedException` que trae los plugins y los retenedores como datos,
+    para que la app arme su propio mensaje corto.
 - **Scopes anidados.** Un sub-plugin (un plugin con exactamente una dependencia requerida) ve los objetos
   que construyó su padre: el mismo singleton, no una copia. Con varios padres no hay un único scope que
   lo contenga, y en ese caso llega a los objetos de los otros plugins por roles, como todos.
@@ -398,7 +408,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 43, build core 10, processor 6, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 45, build core 10, processor 6, API 7, guice 5,
   harness 6. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

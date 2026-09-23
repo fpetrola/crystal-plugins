@@ -199,6 +199,13 @@ public final class PluginInstaller {
         }
     }
 
+    /** The ids in the installed set. */
+    public Set<String> installedIds() {
+        Set<String> ids = new TreeSet<>();
+        cache.installed().orElse(List.of()).forEach(a -> ids.add(a.id()));
+        return ids;
+    }
+
     /** Removes {@code pluginIds} from the installed set; their jars stay cached until the next prune. */
     public void remove(Set<String> pluginIds) {
         Map<String, PluginArtifact> set = byId(cache.installed().orElse(List.of()));

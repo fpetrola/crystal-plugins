@@ -204,10 +204,13 @@ class SubPluginsAndUnloadTest {
         try (PluginService plugins = service()) {
             plugins.start();
 
-            PluginException e = assertThrows(PluginException.class, () -> plugins.uninstall("csv"));
+            assertEquals(List.of("plugin 'printer'"), plugins.heldBy("csv"), "known before trying");
+            PluginRetainedException e = assertThrows(PluginRetainedException.class, () -> plugins.uninstall("csv"));
 
-            assertTrue(e.getMessage().contains("plugin 'printer' holds an implementation of 'csv'"), e.getMessage());
+            assertEquals(List.of("csv"), e.plugins());
+            assertEquals(List.of("plugin 'printer'"), e.holders());
             assertEquals(Set.of("csv", "printer"), ids(plugins), "nothing changed");
+            assertEquals(List.of(), plugins.heldBy("printer"));
             assertEquals(List.of("printer"), plugins.uninstall("printer").stream().map(PluginInfo::id).toList());
             assertEquals(List.of("csv"), plugins.uninstall("csv").stream().map(PluginInfo::id).toList(),
                     "once its holder is gone, csv is clean");
@@ -222,8 +225,8 @@ class SubPluginsAndUnloadTest {
             Looked looked = plugins.create(Looked.class);
             Fixed fixed = plugins.create(Fixed.class);
 
-            PluginException e = assertThrows(PluginException.class, () -> plugins.uninstall("csv"));
-            assertTrue(e.getMessage().contains("an application object (" + Fixed.class.getName() + ")"), e.getMessage());
+            PluginRetainedException e = assertThrows(PluginRetainedException.class, () -> plugins.uninstall("csv"));
+            assertEquals(List.of(Fixed.class.getName()), e.holders());
             assertEquals("csv", fixed.exporter.format());
         }
         try (PluginService plugins = service()) {
@@ -251,6 +254,44 @@ class SubPluginsAndUnloadTest {
                 Thread.sleep(20);
             }
             assertNull(loader.get(), "classloader and injector dropped together, nothing else holds them");
+        }
+    }
+
+    @Test
+    void aHeldPluginCanBeRemovedOnTheNextStart() {
+        exporter("csv", "");
+        try (PluginService plugins = service()) {
+            plugins.start();
+            Fixed fixed = plugins.create(Fixed.class);
+            assertEquals(List.of(Fixed.class.getName()), plugins.heldBy("csv"));
+
+            assertEquals(List.of("csv"), plugins.uninstallOnNextStart("csv"));
+
+            assertEquals("csv", fixed.exporter.format(), "still running for whoever holds it");
+            assertEquals(Set.of("csv"), plugins.pendingRemovals());
+        }
+        try (PluginService next = PluginService.builder().cacheDirectory(cache).build()) {
+            next.start();
+            assertTrue(next.plugins().isEmpty(), "gone on the next start");
+        }
+    }
+
+    @Test
+    void removalOnTheNextStartTakesDependentsAlongAndInstallCancelsIt() {
+        family();
+        exporter("md", "");
+        try (PluginService plugins = service()) {
+            plugins.start();
+
+            assertEquals(List.of("deep", "tsv", "multi"), plugins.uninstallOnNextStart("multi"));
+            assertEquals(Set.of("deep", "multi", "tsv"), plugins.pendingRemovals());
+
+            plugins.install("multi");
+            assertEquals(Set.of("deep", "tsv"), plugins.pendingRemovals(), "install cancels that plugin's removal");
+        }
+        try (PluginService next = PluginService.builder().cacheDirectory(cache).expose(Journal.class, journal).build()) {
+            next.start();
+            assertEquals(Set.of("md", "multi"), ids(next));
         }
     }
 
