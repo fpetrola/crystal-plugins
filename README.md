@@ -19,7 +19,8 @@ try (PluginService plugins = PluginService.builder()
         .build()) {
     plugins.start();                                 // desde la caché local: sin red si ya está todo
     ReportScreen screen = plugins.create(ReportScreen.class);   // @Inject Set<ReportExporter>
-    UpdateReport report = plugins.checkForUpdates(); // la única llamada que consulta la fuente a propósito
+    plugins.install("pdf-exporter");                 // agrega uno (y lo que le falte) ya, sin reiniciar
+    UpdateReport report = plugins.checkForUpdates(); // instala lo que ofrece la fuente, desde el próximo arranque
 }
 ```
 
@@ -41,7 +42,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (31 tests)
+mvn install                       # framework (37 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -228,10 +229,28 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
     se cumple, y en cascada a los que dependen de él. El motivo queda en `plugins()` (por ejemplo
     `requires csv@1.0.0 but 2.0.0 is installed`). El grafo, el orden y los chequeos siguen siendo de PF4J.
 
+### Instalar sin reiniciar: `install(pluginId)`
+
+Resuelve el flujo "falta el plugin que lee este archivo: lo traigo y lo abro". Qué plugin resuelve qué es
+metadata de dominio de la app y vive en su `PluginSource`; el framework aporta el mecanismo.
+
+- **Agrega, nunca reemplaza.** Instala el plugin y las dependencias que le falten, y los arranca en el
+  momento: cuando `install` vuelve, sus implementaciones ya están en todas las vistas `roles()`, incluso
+  en las que se pidieron antes. No hace falta el unload del hito 7 porque no se toca nada de lo que ya
+  corre. Si una dependencia pide otra versión de un plugin que está corriendo, falla y lo dice.
+- **Primero el plan.** Baja y verifica cada jar (sha256, una sola vez), lee su `Plugin-Dependencies`
+  con el propio descriptor de PF4J y chequea las versiones con el mismo `VersionManager` que usa el
+  runtime. Si algo no cierra (una dependencia que la fuente no ofrece, una versión que no encaja), tira
+  una excepción y no cambia nada.
+- **Se persiste antes de cargar.** Los plugins nuevos entran al conjunto instalado antes de cargarse:
+  una caída en el medio no pierde la decisión del usuario, y en el próximo arranque ya están.
+- **Un plugin instalado conserva su versión.** `install` no actualiza nada de manera implícita; para eso
+  está `checkForUpdates()`.
+
 ## Estado y límites conocidos
 
-- Hechos: hitos 1 a 5. Tests: runtime 18, build core 9, processor 4. Además, `examples/` con dos apps
-  y un sub-plugin (4 tests de punta a punta).
+- Hechos: hitos 1 a 5 e `install(pluginId)`. Tests: runtime 24, build core 9, processor 4. Además,
+  `examples/` con dos apps y un sub-plugin (4 tests de punta a punta).
 - **Varios procesos sobre la misma caché:** todas las escrituras son atómicas, pero no hay un lock entre
   procesos. Si dos procesos actualizan a la vez, gana el último; los dos estados son consistentes y, en
   el peor caso, un jar se descarga dos veces.

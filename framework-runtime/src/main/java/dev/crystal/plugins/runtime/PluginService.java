@@ -46,7 +46,8 @@ import dev.crystal.plugins.runtime.internal.Roles;
  *     Set<ReportExporter> exporters = plugins.roles(ReportExporter.class);  // live view
  *     ReportScreen screen = plugins.create(ReportScreen.class);            // @Inject Set<ReportExporter>
  *     ...
- *     UpdateReport report = plugins.checkForUpdates();   // the only call that consults the source on purpose
+ *     plugins.install("sna-reader");              // add one plugin (and what it lacks) now, no restart
+ *     UpdateReport report = plugins.checkForUpdates();   // install what the source offers, from the next start
  * }
  * }</pre>
  *
@@ -150,6 +151,54 @@ public final class PluginService implements AutoCloseable {
     public synchronized UpdateReport checkForUpdates() {
         checkOpen();
         return installer.update(active.stream().map(PluginArtifact::sha256).collect(Collectors.toSet()));
+    }
+
+    /**
+     * Installs {@code pluginId} from the {@link PluginSource}, together with the dependencies it lacks, and
+     * starts them now: when this method returns, their role implementations are in every {@link #roles} view.
+     * The plugins already running are not touched.
+     *
+     * <p>Dependencies come from the jars' own {@code Plugin-Dependencies}; each jar is downloaded once and
+     * verified by SHA-256. A plugin already installed keeps its version, and a running plugin is never
+     * replaced (that needs unloading). If anything does not fit, nothing is installed. The new plugins are
+     * recorded in the installed set before they are loaded, so they are there on the next start too.
+     *
+     * @return the plugins this call added, dependencies first, with their status now (a plugin whose
+     *         {@code onStart} throws is {@code FAILED}); empty if {@code pluginId} was already loaded
+     * @throws IllegalStateException if the service is not started, or has no source
+     * @throws PluginException       if the plugin or a dependency is not offered, a version does not fit, or a
+     *                               download fails; nothing has changed then
+     */
+    public synchronized List<PluginInfo> install(String pluginId) {
+        checkOpen();
+        if (!started) {
+            throw new IllegalStateException("install() adds plugins to a running service; call start() first "
+                    + "(before starting, checkForUpdates() installs what the source offers)");
+        }
+        if (manager.getPlugin(pluginId) != null) {
+            return List.of();
+        }
+        Map<String, String> loaded = new LinkedHashMap<>();
+        manager.getPlugins().forEach(p -> loaded.put(p.getPluginId(), p.getDescriptor().getVersion()));
+        List<PluginArtifact> plan = installer.plan(pluginId, loaded, manager.getVersionManager());
+
+        installer.add(plan);
+        List<PluginArtifact> nowActive = new ArrayList<>(active);
+        nowActive.addAll(plan);
+        active = List.copyOf(nowActive);
+
+        for (PluginArtifact artifact : plan) {
+            manager.loadPlugin(cache.path(artifact));
+        }
+        for (PluginArtifact artifact : plan) {
+            if (manager.getPlugin(artifact.id()) != null) {
+                manager.startPlugin(artifact.id());
+            }
+        }
+        List<PluginInfo> all = plugins();
+        return plan.stream()
+                .map(a -> all.stream().filter(i -> i.id().equals(a.id())).findFirst().orElseThrow())
+                .toList();
     }
 
     /**
