@@ -36,6 +36,7 @@ try (PluginService plugins = PluginService.builder()
 | `framework-guice` (opcional)                      | app con Guice propio | `PluginsModule`: los roles se inyectan en el injector de la app.             |
 | `app-api` (lo escribe cada app)                   | autores + app       | Interfaces-rol de la app; depende de `framework-api`.                         |
 | `framework-test-harness`                          | autores (tests)     | `PluginHarness`: el plugin, solo, en un `PluginService` real y sin la app.     |
+| `framework-swing` (opcional)                      | app Swing           | `PluginsPanel`: panel de referencia que pinta el modelo de plugins.           |
 
 `examples/` es un build aparte que hace de terceros: dos apps sin relación entre sí (un emulador con
 `Peripheral`, una app de reportes con `ReportExporter`), sus APIs y plugins para cada una, armados con
@@ -43,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (82 tests)
+mvn install                       # framework (84 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -399,8 +400,16 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
 - **Sale del estado real,** no de `plugin-metadata.json`: el índice de extensiones de PF4J, las clases
   cargadas, el manifiesto, `roles.idx` y el registro. Por eso vale también para plugins con metadata
   escrita a mano.
-- **Nada gráfico en el core.** Un panel de referencia (Swing, por ejemplo) sería un artefacto opcional
-  aparte.
+- **Nada gráfico en el core.** El panel de referencia para Swing está en un artefacto opcional aparte,
+  `framework-swing`: `new PluginsPanel(plugins)` se pone en un diálogo o una pestaña. Tiene dos
+  árboles:
+  - "Plugins": plugin → extensiones → roles, más los roles que define, con versión, estado, "en uso" o
+    "se va al próximo arranque", y un tooltip con dependencias, quién lo retiene y el motivo de una falla;
+  - "Roles": rol y quién lo define → implementaciones, marcando las ocultas.
+
+  "Remove" desinstala en el momento si nada retiene el plugin, y si no lo deja para el próximo
+  arranque; "Refresh" vuelve a leer el estado. Armar los árboles (`PluginTrees`) está separado de los
+  widgets, así que se prueba sin pantalla.
 
 ### Plugins por defecto dentro de la aplicación
 
@@ -447,7 +456,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
   separación entre catálogo e instalado. Tests: runtime 47, build core 11, processor 6, API 7, guice 5,
-  harness 6. Además, `examples/` con dos apps, un sub-plugin, una app con su
+  harness 6, swing 2. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
   un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es
