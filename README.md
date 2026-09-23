@@ -17,10 +17,10 @@ try (PluginService plugins = PluginService.builder()
         .source(miCatalogo)                          // PluginSource de la app (red, disco, lo que sea)
         .cacheDirectory(datosDeLaApp.resolve("plugins"))
         .build()) {
-    plugins.start();                                 // desde la caché local: sin red si ya está todo
+    plugins.start();                                 // lo instalado, desde la caché local: nunca usa la red
     ReportScreen screen = plugins.create(ReportScreen.class);   // @Inject Set<ReportExporter>
-    plugins.install("pdf-exporter");                 // agrega uno (y lo que le falte) ya, sin reiniciar
-    UpdateReport report = plugins.checkForUpdates(); // instala lo que ofrece la fuente, desde el próximo arranque
+    plugins.install("pdf-exporter");                 // el usuario elige del catálogo: entra ya, sin reiniciar
+    UpdateReport report = plugins.checkForUpdates(); // actualiza lo instalado; report.available() = lo demás
 }
 ```
 
@@ -43,7 +43,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (67 tests)
+mvn install                       # framework (71 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -174,10 +174,20 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
   abierto puede romper la carga de clases de la JVM en curso. Una versión nueva es un archivo nuevo, así
   que un proceso puede actualizar mientras otro sigue usando los jars anteriores. El layout es interno y
   no forma parte del contrato; el contrato público es el jar.
-- **El arranque no consulta la fuente.** `start()` lee el conjunto instalado y carga desde la caché. La
-  `PluginSource` solo se consulta en tres casos: el primer arranque (caché vacía), un
-  `checkForUpdates()` explícito, y para restaurar un jar que falta en la caché (misma versión exacta,
-  nunca un upgrade implícito). Una app sin red, o sin fuente configurada, arranca igual.
+- **La fuente es un catálogo; lo instalado es otra cosa.** `start()` lee el conjunto instalado y carga
+  desde la caché, y **nunca** instala nada por su cuenta, ni siquiera con la caché vacía. Lo instalado
+  cambia solo con operaciones explícitas, que son las únicas que consultan la fuente:
+  - `install(id)` agrega un plugin, con las dependencias que le falten;
+  - `uninstall(id)` lo saca;
+  - `checkForUpdates()` actualiza lo que ya está instalado y además informa qué otros plugins hay
+    disponibles y qué instalado dejó de ofrecerse;
+  - `installAll()` deja instalado exactamente lo que se ofrece, para carpetas drop-in.
+
+  La única excepción es restaurar un jar instalado que falta en la caché, y siempre con la misma
+  versión. Una app sin red, o sin fuente configurada, arranca igual.
+
+  (Hasta la versión `guice-1`, el primer arranque instalaba todo lo que ofrecía la fuente. Con un
+  catálogo remoto de 52 plugins eso significaba bajarlos todos, así que se separó.)
 - **Cada jar se descarga una sola vez y se verifica.** Si su hash ya está en la caché, no se descarga. El
   sha256 se calcula durante la copia, y además se verifica que el manifiesto diga el id y la versión que
   anunció la fuente. Solo entonces el archivo se hace visible, con un move atómico.
@@ -186,9 +196,9 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
   plugins en ejecución no se tocan y el conjunto nuevo rige desde el próximo arranque: aplicarlo en
   caliente requiere el unload transitivo del hito 7. Si se llama antes de `start()`, actualiza lo que se
   va a cargar.
-- **La fuente elige las versiones, no el framework.** Una fuente ofrece a lo sumo una versión por plugin y
-  el framework instala exactamente eso; si ofrece dos, es un error explícito. No hay "la última"
-  implícita.
+- **La fuente elige las versiones, no el framework.** Una fuente ofrece a lo sumo una versión por plugin
+  (si ofrece dos, es un error explícito), y esa es la que se instala o a la que se actualiza. No hay
+  "la última" implícita.
 - **PF4J se extiende solo donde hace falta.** `CrystalPluginManager` (que extiende `DefaultPluginManager`)
   usa un `PluginRepository` que devuelve exactamente los jars del conjunto instalado, en lugar de escanear
   un directorio. El `PluginLoader` sigue siendo el `JarPluginLoader` estándar: ya carga desde disco local
@@ -198,9 +208,9 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
 - **La limpieza es acotada.** Después de cada actualización se borran los jars que no están en el conjunto
   nuevo, ni en el anterior (otros procesos que comparten la caché pueden estar usándolo), ni cargados en
   este proceso.
-- **Por defecto la caché es temporal.** Sin `cacheDirectory(...)`, cada arranque es un primer arranque, lo
-  que sirve para tests y fuentes locales. Una app con fuente remota pasa su propio directorio: dónde
-  guardar datos lo decide la app, no el framework.
+- **Por defecto la caché es temporal.** Sin `cacheDirectory(...)`, cada arranque empieza sin nada
+  instalado, lo que sirve para tests (`installAll()` y después `start()`). Una app real pasa su propio
+  directorio: dónde guardar datos lo decide la app, no el framework.
 
 ### Hito 5: dependencias por bytecode, ancladas a la versión compilada
 
@@ -346,18 +356,14 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
   una caída en el medio no pierde la decisión del usuario, y en el próximo arranque ya están.
 - **Un plugin instalado conserva su versión.** `install` no actualiza nada de manera implícita; para eso
   está `checkForUpdates()`.
-- **Receta para catálogos grandes (instalar a pedido).** El primer arranque sobre una caché vacía instala
-  todo lo que ofrece la fuente, y con un catálogo remoto de decenas de plugins eso no siempre se quiere.
-  La salida, probada en una adopción real con 52 plugins, es que la fuente del servicio sea la carpeta
-  de plugins del usuario (`PluginSources.directory`), con lo que el arranque carga exactamente lo que
-  está puesto. El catálogo remoto queda del lado de la app para elegir, y lo elegido se baja a esa
-  carpeta y se agrega con `install(id)`: sus dependencias entran primero y los `Set` ya entregados lo
-  ven en el momento.
+- **Un catálogo grande funciona sin trucos.** La fuente puede ser el catálogo remoto completo: nada se
+  instala hasta que el usuario lo elige con `install(id)`. Una ventana del tipo "lo que hay / lo que se
+  puede tener" sale directo del reporte de `checkForUpdates()` (`changes`, `available`, `notOffered`).
 
 ## Estado y límites conocidos
 
-- Hechos: hitos 1 a 7, `install(pluginId)` y el adaptador `framework-guice`. Tests: runtime 39, build
-  core 10, processor 6, API 7, guice 5. Además, `examples/` con dos apps, un sub-plugin y una app con su
+- Hechos: hitos 1 a 7, `install(pluginId)`, el adaptador `framework-guice`, y la separación entre
+  catálogo e instalado. Tests: runtime 43, build core 10, processor 6, API 7, guice 5. Además, `examples/` con dos apps, un sub-plugin y una app con su
   propio injector (6 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
   un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es

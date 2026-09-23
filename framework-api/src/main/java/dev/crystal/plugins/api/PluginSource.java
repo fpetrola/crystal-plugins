@@ -12,15 +12,17 @@ import java.util.List;
  * available, and the bytes of one artifact. It stores those bytes in its local cache, verified by SHA-256,
  * and from then on loads from disk.
  *
- * <p>A source is consulted <strong>only</strong> when the cache cannot answer: the first start on an empty
- * cache, an explicit {@code checkForUpdates()}, and the repair of a damaged cache. Starting with every
- * installed plugin already cached never calls the source, so implementations are free to use the network.
+ * <p>A source is a <em>catalog</em>: what can be installed, not what is. What is installed is the runtime's own
+ * state and changes only through explicit operations ({@code install}, {@code uninstall},
+ * {@code checkForUpdates}, {@code installAll}), which are the only ones that consult the source, besides
+ * restoring an installed jar missing from the cache. Starting never calls it, so implementations are free to
+ * use the network.
  */
 public interface PluginSource {
 
     /**
-     * The artifacts this source currently offers, at most one per plugin id. The runtime installs exactly
-     * this set: choosing which version to offer is the source's decision, never the framework's.
+     * The artifacts this source currently offers, at most one per plugin id. Choosing which version to offer is
+     * the source's decision, never the framework's.
      */
     List<PluginArtifact> artifacts() throws IOException;
 

@@ -78,6 +78,7 @@ class PluginsModuleTest {
 
     private PluginService started() {
         PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).build();
+        plugins.installAll();
         plugins.start();
         return plugins;
     }

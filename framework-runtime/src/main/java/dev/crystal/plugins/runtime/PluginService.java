@@ -77,10 +77,6 @@ public final class PluginService implements AutoCloseable {
             throw new UncheckedIOException("Cannot create a temporary plugin cache", e);
         }
         this.installer = new PluginInstaller(cache, builder.source);
-        if (ownsCache && builder.source != null) {
-            log.info("Temporary plugin cache: plugins are fetched from {} on every start "
-                    + "(set cacheDirectory to keep them between runs)", builder.source);
-        }
 
         this.manager = new CrystalPluginManager(cache.root());
         this.scopes = new PluginScopes(Map.copyOf(builder.exposed), registry, manager::getExtensionClassNames);
@@ -94,15 +90,13 @@ public final class PluginService implements AutoCloseable {
     /**
      * Loads and starts every installed plugin, from the local cache.
      *
-     * <p>The {@link PluginSource} is not consulted when every installed plugin is cached; it is only used on
-     * the first start on an empty cache (to install what it offers) and to restore a jar missing from the
-     * cache (same version, never an upgrade).
+     * <p>Starting never installs anything: the {@link PluginSource} is a catalog, and what is installed changes
+     * only through {@link #install}, {@link #uninstall}, {@link #checkForUpdates()} and {@link #installAll()}. So a
+     * new cache starts with no plugins, and a start never uses the network; the one exception is restoring an
+     * installed jar missing from the cache (the same version, never an upgrade).
      *
      * <p>A plugin that fails (unresolvable dependency, exception in {@code onStart}) is reported by
      * {@link #plugins()}; it does not prevent the others from starting.
-     *
-     * @throws PluginException if the first installation fails (source unavailable, integrity check...); the
-     *                         service stays unstarted and {@code start()} may be retried
      */
     public synchronized void start() {
         checkOpen();
@@ -123,20 +117,35 @@ public final class PluginService implements AutoCloseable {
     }
 
     /**
-     * Installs what the {@link PluginSource} offers now: downloads the jars that are not cached yet (each
-     * one once, verified by SHA-256) and records the new installed set. This is the only operation that
-     * consults the source on purpose.
+     * Updates what is installed to what the {@link PluginSource} offers now: an installed plugin offered in
+     * another version is updated (with any dependency the new version newly needs). Nothing else is installed
+     * or removed; the report lists what else is {@code available} (install it with {@link #install}) and what is
+     * installed but no longer offered.
      *
-     * <p>All-or-nothing: if anything fails, the installed set is left as it was. The new set takes effect the
-     * next time a {@code PluginService} starts on this cache; plugins already running are not touched.
-     * Called before {@link #start()}, it therefore refreshes the plugins this service is about to load.
+     * <p>Each jar is downloaded once and verified by SHA-256. All-or-nothing: if anything fails, the installed set
+     * is left as it was. The updates take effect the next time a {@code PluginService} starts on this cache;
+     * plugins already running are not touched.
      *
      * @throws IllegalStateException if no source is configured
      * @throws PluginException       if the source cannot be read or serves something other than it advertised
      */
     public synchronized UpdateReport checkForUpdates() {
         checkOpen();
-        return installer.update(active.stream().map(PluginArtifact::sha256).collect(Collectors.toSet()));
+        return installer.updateInstalled(inUse());
+    }
+
+    /**
+     * Makes the installed set exactly what the {@link PluginSource} offers: adds, updates and removes. For
+     * drop-in folders and managed deployments, where the source <em>is</em> the list of plugins to have; called
+     * before {@link #start()}, the start loads them. Same guarantees and timing as {@link #checkForUpdates()}.
+     */
+    public synchronized UpdateReport installAll() {
+        checkOpen();
+        return installer.installAll(inUse());
+    }
+
+    private Set<String> inUse() {
+        return active.stream().map(PluginArtifact::sha256).collect(Collectors.toSet());
     }
 
     /**

@@ -50,6 +50,7 @@ class OwnInjectorTest {
                 .source(PluginSources.directory(PLUGINS.resolve("emulator")))
                 .expose(Clock.class, clock)
                 .build()) {
+            plugins.installAll();
             plugins.start();
 
             // The only place the framework is named: the startup, where the injector is built.

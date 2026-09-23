@@ -53,7 +53,9 @@ class ConflictResolutionTest {
     }
 
     private PluginService service() {
-        return PluginService.builder().source(PluginSources.directory(repo)).build();
+        PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).build();
+        plugins.installAll();
+        return plugins;
     }
 
     private static List<String> formats(PluginService plugins) {
@@ -159,6 +161,7 @@ class ConflictResolutionTest {
 
         try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo))
                 .conflictResolver(onlyCsv).build()) {
+            plugins.installAll();
             plugins.start();
 
             assertEquals(List.of("csv"), formats(plugins));

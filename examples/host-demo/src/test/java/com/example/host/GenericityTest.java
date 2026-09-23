@@ -53,6 +53,7 @@ class GenericityTest {
                 .source(PluginSources.directory(PLUGINS.resolve("emulator")))
                 .expose(Clock.class, clock)
                 .build()) {
+            plugins.installAll();   // the directory is the list of plugins to have
             plugins.start();
 
             assertEquals(List.of("plugin-beeper"), plugins.plugins().stream().map(PluginInfo::id).toList());
@@ -69,6 +70,7 @@ class GenericityTest {
         try (PluginService plugins = PluginService.builder()
                 .source(PluginSources.directory(PLUGINS.resolve("reports")))
                 .build()) {
+            plugins.installAll();
             plugins.start();
 
             Set<ReportExporter> exporters = plugins.roles(ReportExporter.class);

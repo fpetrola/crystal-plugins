@@ -44,6 +44,7 @@ class DependencyPinningTest {
     }
 
     private Map<String, PluginInfo> start(PluginService plugins) {
+        plugins.installAll();
         plugins.start();
         return plugins.plugins().stream().collect(Collectors.toMap(PluginInfo::id, p -> p));
     }

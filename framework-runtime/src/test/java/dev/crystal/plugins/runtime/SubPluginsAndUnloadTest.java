@@ -123,8 +123,10 @@ class SubPluginsAndUnloadTest {
     }
 
     private PluginService service() {
-        return PluginService.builder().source(PluginSources.directory(repo)).cacheDirectory(cache)
+        PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).cacheDirectory(cache)
                 .expose(Journal.class, journal).build();
+        plugins.installAll();
+        return plugins;
     }
 
     private static List<String> formats(PluginService plugins) {

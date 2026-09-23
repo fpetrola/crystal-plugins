@@ -36,10 +36,20 @@ class PluginInstallTest {
     Path elsewhere;
 
     @Test
+    void aFreshServiceHasNothingInstalledUntilAsked() {
+        exporter("md", "1.0.0", repo);
+        try (PluginService plugins = service(PluginSources.directory(repo))) {
+            plugins.start();
+            assertTrue(plugins.plugins().isEmpty(), "the source is a catalog, not a list of what to install");
+        }
+    }
+
+    @Test
     void installsAPluginAndTheDependenciesItLacksWhileRunning() {
         exporter("md", "1.0.0", repo);
         try (PluginService plugins = service(PluginSources.directory(repo))) {
             plugins.start();
+            plugins.install("md");
             Set<Peripheral> devices = plugins.roles(Peripheral.class);
             Set<ReportExporter> exporters = plugins.roles(ReportExporter.class);
             assertTrue(devices.isEmpty());
@@ -70,6 +80,7 @@ class PluginInstallTest {
                 .source("acme.printer.Device", device("printer")).buildInto(elsewhere);
         try (PluginService plugins = service(PluginSources.directory(repo))) {
             plugins.start();
+            plugins.install("md");
             copy(elsewhere.resolve("printer-1.0.0.jar"), repo);   // offered, but its dependency is not
 
             PluginException e = assertThrows(PluginException.class, () -> plugins.install("printer"));
@@ -88,6 +99,7 @@ class PluginInstallTest {
         exporter("csv", "1.0.0", repo);
         try (PluginService plugins = service(PluginSources.directory(repo))) {
             plugins.start();
+            plugins.install("csv");
 
             Files.delete(repo.resolve("csv-1.0.0.jar"));
             Path csv2 = exporter("csv", "2.0.0", repo);
@@ -108,6 +120,7 @@ class PluginInstallTest {
         Switchable source = new Switchable(PluginSources.directory(repo));
         try (PluginService plugins = service(source)) {
             plugins.start();
+            plugins.install("md");
             source.offline = true;
 
             assertEquals(List.of(), plugins.install("md"));

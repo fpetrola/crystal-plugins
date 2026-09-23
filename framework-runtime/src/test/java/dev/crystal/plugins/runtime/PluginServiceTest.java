@@ -52,12 +52,15 @@ class PluginServiceTest {
             }
             """;
 
+    /** The directory is the list of plugins to have (drop-in folder): installAll() before start(). */
     private PluginService service(Journal journal) {
-        return PluginService.builder()
+        PluginService plugins = PluginService.builder()
                 .source(PluginSources.directory(repo))
                 .expose(Bus.class, new Bus())
                 .expose(Journal.class, journal)
                 .build();
+        plugins.installAll();
+        return plugins;
     }
 
     @Test
@@ -239,7 +242,7 @@ class PluginServiceTest {
             }
         };
         try (PluginService plugins = PluginService.builder().source(lying).build()) {
-            PluginException e = assertThrows(PluginException.class, plugins::start);
+            PluginException e = assertThrows(PluginException.class, plugins::installAll);
             assertTrue(e.getMessage().contains("csv@1.0.0"), e.getMessage());
         }
     }

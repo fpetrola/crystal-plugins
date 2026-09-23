@@ -28,15 +28,18 @@ import dev.crystal.plugins.runtime.UpdateReport;
 /**
  * Decides when the {@link PluginSource} is consulted, and keeps the cache consistent when it is.
  *
+ * <p>The source is a <em>catalog</em>: what can be installed. What <em>is</em> installed is separate state, the
+ * installed set in the cache, and only explicit operations change it:
  * <ul>
- *   <li>{@link #prepare()} (every start): the installed set comes from disk. The source is used only if
- *       nothing was ever installed (first run) or a cached jar went missing (repair, same versions).</li>
- *   <li>{@link #update(Set)} (explicit): installs exactly what the source offers now. All-or-nothing: every
- *       jar is downloaded and verified before the new installed set is written, so a failed or interrupted
- *       update leaves the previous one untouched.</li>
- *   <li>{@link #plan} + {@link #add} (explicit): adds one plugin and the dependencies it lacks to what is
- *       running, without touching anything else.</li>
+ *   <li>{@link #prepare()} (every start): the installed set comes from disk and nothing is installed implicitly,
+ *       not even on an empty cache. The source is only used to restore a cached jar that went missing (same
+ *       version, never an upgrade).</li>
+ *   <li>{@link #plan} + {@link #add}: one plugin and the dependencies it lacks.</li>
+ *   <li>{@link #updateInstalled}: newer versions of what is installed (plus the dependencies they newly need).</li>
+ *   <li>{@link #installAll}: exactly what the source offers, for drop-in folders and managed deployments.</li>
  * </ul>
+ * Updates are all-or-nothing: every jar is downloaded and verified before the new installed set is written, so
+ * a failed or interrupted update leaves the previous one untouched.
  */
 public final class PluginInstaller {
 
@@ -51,68 +54,118 @@ public final class PluginInstaller {
         this.source = source;
     }
 
-    /** The plugins to load now, every one of them present in the cache. */
+    /** The plugins to load now: the installed set, every one of them present in the cache. */
     public List<PluginArtifact> prepare() {
-        Optional<List<PluginArtifact>> installed = cache.installed();
-        if (installed.isEmpty()) {
-            if (source == null) {
-                return List.of();
-            }
-            log.info("No plugins installed in {} yet; installing from {}", cache.root(), source);
-            update(Set.of());
-            installed = cache.installed();
-        }
-        List<PluginArtifact> missing = installed.orElseThrow().stream().filter(a -> !cache.contains(a)).toList();
+        List<PluginArtifact> installed = cache.installed().orElse(List.of());
+        List<PluginArtifact> missing = installed.stream().filter(a -> !cache.contains(a)).toList();
         if (!missing.isEmpty()) {
             repair(missing);
         }
-        return installed.orElseThrow().stream().filter(cache::contains).toList();
+        return installed.stream().filter(cache::contains).toList();
     }
 
     /**
-     * Installs the source's current offer.
+     * Brings what is installed up to what the source offers: a plugin offered in another version (or other bytes)
+     * is updated, and a dependency such an update newly needs is added if offered. Nothing else is installed or
+     * removed; the report tells what else is available and what is no longer offered.
      *
      * @param inUse hashes of jars loaded by this process; they survive the prune that follows
      */
-    public UpdateReport update(Set<String> inUse) {
-        if (source == null) {
-            throw new IllegalStateException("No PluginSource configured");
-        }
-        List<PluginArtifact> offer;
-        try {
-            offer = source.artifacts();
-        } catch (IOException e) {
-            throw new PluginException("Cannot list plugins of " + source, e);
-        }
-        Map<String, PluginArtifact> next = byId(offer);
-
-        int downloads = 0;
-        for (PluginArtifact artifact : next.values()) {
-            try {
-                if (cache.fetch(source, artifact)) {
-                    downloads++;
-                }
-            } catch (IOException e) {
-                throw new PluginException("Cannot download " + artifact.coordinates() + " from " + source, e);
+    public UpdateReport updateInstalled(Set<String> inUse) {
+        Map<String, PluginArtifact> offered = byId(offer());
+        Map<String, PluginArtifact> previous = byId(cache.installed().orElse(List.of()));
+        Map<String, PluginArtifact> next = new TreeMap<>(previous);
+        List<String> notOffered = new ArrayList<>();
+        for (PluginArtifact installed : previous.values()) {
+            PluginArtifact candidate = offered.get(installed.id());
+            if (candidate == null) {
+                notOffered.add(installed.id());
+            } else if (!candidate.sha256().equals(installed.sha256())) {
+                next.put(candidate.id(), candidate);
             }
         }
-
-        Map<String, PluginArtifact> previous = byId(cache.installed().orElse(List.of()));
-        try {
-            cache.install(List.copyOf(next.values()));
-        } catch (IOException e) {
-            throw new PluginException("Cannot write the installed set in " + cache.root(), e);
+        int downloads = 0;
+        // Fetch the updated jars, and follow what they need: an update may depend on a plugin not installed yet.
+        java.util.Deque<PluginArtifact> work = new java.util.ArrayDeque<>();
+        next.values().stream().filter(a -> !previous.containsValue(a)).forEach(work::add);
+        while (!work.isEmpty()) {
+            PluginArtifact artifact = work.pop();
+            downloads += fetch(artifact) ? 1 : 0;
+            for (PluginDependency dependency : descriptor(artifact).getDependencies()) {
+                if (!dependency.isOptional() && !next.containsKey(dependency.getPluginId())
+                        && offered.containsKey(dependency.getPluginId())) {
+                    PluginArtifact needed = offered.get(dependency.getPluginId());
+                    next.put(needed.id(), needed);
+                    work.add(needed);
+                }
+            }
         }
+        List<PluginArtifact> available = offered.values().stream().filter(a -> !next.containsKey(a.id())).toList();
+        return commit(previous, next, inUse, downloads, available, notOffered);
+    }
 
+    /**
+     * Makes the installed set exactly what the source offers now: adds, updates and removes.
+     *
+     * @param inUse hashes of jars loaded by this process; they survive the prune that follows
+     */
+    public UpdateReport installAll(Set<String> inUse) {
+        Map<String, PluginArtifact> next = byId(offer());
+        int downloads = 0;
+        for (PluginArtifact artifact : next.values()) {
+            downloads += fetch(artifact) ? 1 : 0;
+        }
+        Map<String, PluginArtifact> previous = byId(cache.installed().orElse(List.of()));
+        return commit(previous, next, inUse, downloads, List.of(), List.of());
+    }
+
+    private UpdateReport commit(Map<String, PluginArtifact> previous, Map<String, PluginArtifact> next,
+                                Set<String> inUse, int downloads, List<PluginArtifact> available,
+                                List<String> notOffered) {
+        if (!previous.equals(next) || cache.installed().isEmpty()) {
+            try {
+                cache.install(List.copyOf(next.values()));
+            } catch (IOException e) {
+                throw new PluginException("Cannot write the installed set in " + cache.root(), e);
+            }
+        }
         // Keep the previous generation too: other processes sharing the cache may still be running it.
         Set<String> keep = new HashSet<>(inUse);
         previous.values().forEach(a -> keep.add(a.sha256()));
         next.values().forEach(a -> keep.add(a.sha256()));
         cache.prune(keep);
 
-        UpdateReport report = new UpdateReport(diff(previous, next), downloads);
-        log.info("Plugin update from {}: {} change(s), {} download(s)", source, report.changes().size(), downloads);
+        UpdateReport report = new UpdateReport(diff(previous, next), downloads, available, notOffered);
+        log.info("Plugins from {}: {} change(s), {} download(s), {} more available", source,
+                report.changes().size(), downloads, available.size());
         return report;
+    }
+
+    private List<PluginArtifact> offer() {
+        if (source == null) {
+            throw new IllegalStateException("No PluginSource configured");
+        }
+        try {
+            return source.artifacts();
+        } catch (IOException e) {
+            throw new PluginException("Cannot list plugins of " + source, e);
+        }
+    }
+
+    private boolean fetch(PluginArtifact artifact) {
+        try {
+            return cache.fetch(source, artifact);
+        } catch (IOException e) {
+            throw new PluginException("Cannot download " + artifact.coordinates() + " from " + source, e);
+        }
+    }
+
+    private PluginDescriptor descriptor(PluginArtifact artifact) {
+        try {
+            return new ManifestPluginDescriptorFinder().find(cache.path(artifact));
+        } catch (PluginRuntimeException e) {
+            throw new PluginException("Cannot read the manifest of " + artifact.coordinates(), e);
+        }
     }
 
     /**
@@ -130,13 +183,7 @@ public final class PluginInstaller {
         if (source == null) {
             throw new IllegalStateException("No PluginSource configured");
         }
-        List<PluginArtifact> offered;
-        try {
-            offered = source.artifacts();
-        } catch (IOException e) {
-            throw new PluginException("Cannot list plugins of " + source, e);
-        }
-        Planner planner = new Planner(byId(offered), byId(cache.installed().orElse(List.of())), loaded, versions);
+        Planner planner = new Planner(byId(offer()), byId(cache.installed().orElse(List.of())), loaded, versions);
         planner.visit(pluginId, null, null);
         return List.copyOf(planner.plan);
     }
@@ -211,11 +258,7 @@ public final class PluginInstaller {
                 throw new PluginException(who + (installed.containsKey(id) ? "the installed" : "the offered")
                         + " version is " + artifact.version());
             }
-            try {
-                cache.fetch(source, artifact);
-            } catch (IOException e) {
-                throw new PluginException("Cannot download " + artifact.coordinates() + " from " + source, e);
-            }
+            fetch(artifact);
             for (PluginDependency dependency : descriptor(artifact).getDependencies()) {
                 if (!dependency.isOptional()) {
                     visit(dependency.getPluginId(), dependency.getPluginVersionSupport(), id);
@@ -228,14 +271,6 @@ public final class PluginInstaller {
         private boolean satisfies(String version, String constraint) {
             return constraint == null || constraint.isBlank() || "*".equals(constraint.trim())
                     || versions.checkVersionConstraint(version, constraint);
-        }
-
-        private PluginDescriptor descriptor(PluginArtifact artifact) {
-            try {
-                return new ManifestPluginDescriptorFinder().find(cache.path(artifact));
-            } catch (PluginRuntimeException e) {
-                throw new PluginException("Cannot read the manifest of " + artifact.coordinates(), e);
-            }
         }
     }
 

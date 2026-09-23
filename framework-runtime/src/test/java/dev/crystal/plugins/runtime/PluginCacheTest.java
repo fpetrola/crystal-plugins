@@ -42,17 +42,18 @@ class PluginCacheTest {
         RecordingSource source = new RecordingSource(PluginSources.directory(repo));
 
         try (PluginService plugins = service(source)) {
+            plugins.installAll();
             plugins.start();
             assertEquals(Set.of("csv", "md"), formats(plugins));
         }
-        assertEquals(1, source.listings, "first start installs from the source");
+        assertEquals(1, source.listings, "installAll() lists the source once");
         assertEquals(2, source.downloads);
 
         try (PluginService plugins = service(source)) {
             plugins.start();
             assertEquals(Set.of("csv", "md"), formats(plugins));
         }
-        assertEquals(1, source.listings, "later starts do not even list the source");
+        assertEquals(1, source.listings, "starts never list the source");
         assertEquals(2, source.downloads);
 
         source.offline = true;
@@ -67,19 +68,31 @@ class PluginCacheTest {
     }
 
     @Test
-    void checkForUpdatesStagesTheNewSetForTheNextStart() throws IOException {
+    void aFreshCacheStartsEmptyAndTheSourceIsNotConsulted() {
+        publish("csv", "1.0.0", "csv");
+        RecordingSource source = new RecordingSource(PluginSources.directory(repo));
+        try (PluginService plugins = service(source)) {
+            plugins.start();
+            assertTrue(plugins.plugins().isEmpty());
+        }
+        assertEquals(0, source.listings, "the source is a catalog: starting never installs from it");
+    }
+
+    @Test
+    void installAllMakesTheInstalledSetWhatTheSourceOffers() throws IOException {
         publish("csv", "1.0.0", "csv-v1");
         publish("md", "1.0.0", "md");
         RecordingSource source = new RecordingSource(PluginSources.directory(repo));
 
         try (PluginService running = service(source)) {
+            running.installAll();
             running.start();
 
             publish("csv", "2.0.0", "csv-v2");
             Files.delete(repo.resolve("md-1.0.0.jar"));
             publish("xml", "1.0.0", "xml");
 
-            UpdateReport report = running.checkForUpdates();
+            UpdateReport report = running.installAll();
             assertEquals(List.of(
                     new Change(Kind.UPDATED, "csv", "1.0.0", "2.0.0"),
                     new Change(Kind.REMOVED, "md", "1.0.0", null),
@@ -96,10 +109,60 @@ class PluginCacheTest {
     }
 
     @Test
+    void checkForUpdatesOnlyUpdatesWhatIsInstalled() throws IOException {
+        publish("csv", "1.0.0", "csv-v1");
+        publish("md", "1.0.0", "md");
+        try (PluginService plugins = service(PluginSources.directory(repo))) {
+            plugins.installAll();
+        }
+
+        publish("csv", "2.0.0", "csv-v2");
+        Files.delete(repo.resolve("md-1.0.0.jar"));
+        Path xml = publish("xml", "1.0.0", "xml");
+        try (PluginService plugins = service(PluginSources.directory(repo))) {
+            UpdateReport report = plugins.checkForUpdates();
+
+            assertEquals(List.of(new Change(Kind.UPDATED, "csv", "1.0.0", "2.0.0")), report.changes());
+            assertEquals(List.of(new PluginArtifact("xml", "1.0.0", sha(xml))), report.available(),
+                    "offered but not installed: reported, not installed");
+            assertEquals(List.of("md"), report.notOffered(), "no longer offered: reported, kept");
+        }
+
+        try (PluginService next = PluginService.builder().cacheDirectory(cache).build()) {
+            next.start();
+            assertEquals(Set.of("csv-v2", "md"), formats(next));
+        }
+    }
+
+    @Test
+    void anUpdateBringsTheDependenciesItNewlyNeeds() {
+        publish("printer", "1.0.0", "printer-v1");
+        try (PluginService plugins = service(PluginSources.directory(repo))) {
+            plugins.installAll();
+        }
+
+        Path csv = publish("csv", "1.0.0", "csv");
+        PluginJars.plugin("printer", "2.0.0").withProcessor().dependsOn("csv@1.0.0", csv)
+                .source("acme.printer.Exporter", exporter("printer", "printer-v2")).buildInto(repo);
+        deleteFromRepo("printer-1.0.0.jar");
+        try (PluginService plugins = service(PluginSources.directory(repo))) {
+            UpdateReport report = plugins.checkForUpdates();
+
+            assertEquals(List.of(new Change(Kind.ADDED, "csv", null, "1.0.0"),
+                    new Change(Kind.UPDATED, "printer", "1.0.0", "2.0.0")), report.changes());
+        }
+
+        try (PluginService next = PluginService.builder().cacheDirectory(cache).build()) {
+            next.start();
+            assertEquals(Set.of("csv", "printer-v2"), formats(next));
+        }
+    }
+
+    @Test
     void aFailedUpdateLeavesTheInstalledSetAsItWas() {
         publish("csv", "1.0.0", "csv-v1");
         try (PluginService installer = service(PluginSources.directory(repo))) {
-            installer.checkForUpdates();   // install without starting
+            installer.installAll();   // install without starting
         }
 
         publish("csv", "2.0.0", "csv-v2");
@@ -130,7 +193,7 @@ class PluginCacheTest {
             }
         };
         try (PluginService plugins = service(mislabelled)) {
-            PluginException e = assertThrows(PluginException.class, plugins::start);
+            PluginException e = assertThrows(PluginException.class, plugins::installAll);
             assertTrue(e.getMessage().contains("manifest says csv@1.0.0"), e.getMessage());
         }
     }
@@ -142,7 +205,7 @@ class PluginCacheTest {
                 .source("acme.csv.Exporter", exporter("csv", "csv-v2")).buildInto(repo);
 
         try (PluginService plugins = service(PluginSources.directory(repo))) {
-            PluginException e = assertThrows(PluginException.class, plugins::start);
+            PluginException e = assertThrows(PluginException.class, plugins::installAll);
             assertTrue(e.getMessage().contains("offered twice"), e.getMessage());
         }
     }
@@ -152,6 +215,7 @@ class PluginCacheTest {
         publish("csv", "1.0.0", "csv-v1");
         RecordingSource source = new RecordingSource(PluginSources.directory(repo));
         try (PluginService plugins = service(source)) {
+            plugins.installAll();
             plugins.start();
         }
 
@@ -178,6 +242,7 @@ class PluginCacheTest {
         String v2;
         String v3;
         try (PluginService running = service(source)) {
+            running.installAll();
             running.start();
             v2 = sha(publish("csv", "2.0.0", "csv-2"));
             running.checkForUpdates();
@@ -240,6 +305,14 @@ class PluginCacheTest {
                     .filter(n -> n.endsWith(".jar"))
                     .map(n -> n.substring(0, n.length() - 4))
                     .collect(Collectors.toSet());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private void deleteFromRepo(String jar) {
+        try {
+            Files.delete(repo.resolve(jar));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
