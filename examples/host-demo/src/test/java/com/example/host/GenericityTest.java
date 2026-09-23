@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.jar.JarFile;
@@ -90,6 +91,13 @@ class GenericityTest {
                     jar.getManifest().getMainAttributes().getValue("Plugin-Dependencies"),
                     "found in the bytecode, pinned to the version compiled against");
         }
+    }
+
+    @Test
+    void hostTestDoublesStayDiscoverableWithServiceLoader() {
+        List<String> found = ServiceLoader.load(ReportExporter.class).stream()
+                .map(provider -> provider.type().getSimpleName()).toList();
+        assertEquals(List.of("InMemoryExporter"), found);
     }
 
     @Test

@@ -42,7 +42,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (52 tests)
+mvn install                       # framework (54 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -110,6 +110,12 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
 - **`META-INF/services` solo lista lo que `ServiceLoader` puede instanciar** (constructor público sin
   argumentos). Una extensión que solo se construye con `@Inject` va a `extensions.idx` pero no ahí, porque
   si no `ServiceLoader` lanza `ServiceConfigurationError` a todos los que consumen el rol.
+- **Convive con el processor propio de PF4J.** Cuando `pf4j` está en el classpath de compilación (una app
+  host o sus tests, a través de `framework-runtime`), javac corre también el processor `@Extension` de
+  PF4J, que siempre crea `META-INF/extensions.idx`, y un archivo solo lo puede crear un processor por
+  compilación. En ese caso el nuestro no falla: deja un aviso y genera igual los services y la metadata.
+  Eso alcanza para código que no se empaqueta como plugin. Si le pasa a un plugin, el build falla con el
+  motivo, porque ese índice incompleto dejaría al plugin sin extensiones en runtime.
 - **Metadata en dos mitades.** El processor escribe lo que se deriva del fuente; el Maven mojo agrega lo
   que solo conoce el build (id, versión SemVer, `apiVersion`, `roleApis`) y escribe el manifiesto. Esa
   división hace que otro build system solo tenga que reemplazar la segunda mitad.
@@ -275,11 +281,18 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
   una caída en el medio no pierde la decisión del usuario, y en el próximo arranque ya están.
 - **Un plugin instalado conserva su versión.** `install` no actualiza nada de manera implícita; para eso
   está `checkForUpdates()`.
+- **Receta para catálogos grandes (instalar a pedido).** El primer arranque sobre una caché vacía instala
+  todo lo que ofrece la fuente, y con un catálogo remoto de decenas de plugins eso no siempre se quiere.
+  La salida, probada en una adopción real con 52 plugins, es que la fuente del servicio sea la carpeta
+  de plugins del usuario (`PluginSources.directory`), con lo que el arranque carga exactamente lo que
+  está puesto. El catálogo remoto queda del lado de la app para elegir, y lo elegido se baja a esa
+  carpeta y se agrega con `install(id)`: sus dependencias entran primero y los `Set` ya entregados lo
+  ven en el momento.
 
 ## Estado y límites conocidos
 
-- Hechos: hitos 1 a 6 e `install(pluginId)`. Tests: runtime 32, build core 9, processor 4, API 7.
-  Además, `examples/` con dos apps y un sub-plugin (4 tests de punta a punta).
+- Hechos: hitos 1 a 6 e `install(pluginId)`. Tests: runtime 32, build core 10, processor 5, API 7.
+  Además, `examples/` con dos apps y un sub-plugin (5 tests de punta a punta).
 - **Reversibilidad a nivel servicio:** el mecanismo está y está probado (registro, `install`, falla al
   arrancar), pero todavía no hay una operación pública para detener o sacar un plugin puntual. Llega con
   el unload del hito 7.

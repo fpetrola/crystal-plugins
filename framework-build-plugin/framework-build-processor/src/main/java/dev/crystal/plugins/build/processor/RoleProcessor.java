@@ -13,6 +13,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 
 import javax.annotation.processing.AbstractProcessor;
+import javax.annotation.processing.FilerException;
 import javax.annotation.processing.RoundEnvironment;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.AnnotationMirror;
@@ -241,10 +242,28 @@ public final class RoleProcessor extends AbstractProcessor {
             try (Writer writer = file.openWriter()) {
                 writer.write(content);
             }
+        } catch (FilerException e) {
+            if (!resource.equals(Contract.EXTENSIONS_INDEX)) {
+                error(resource, e);
+                return;
+            }
+            // PF4J's own @Extension processor runs whenever pf4j is on the compile classpath and always writes
+            // this file in its first round; the Filer lets only one processor create it per compilation.
+            processingEnv.getMessager().printMessage(Diagnostic.Kind.WARNING, "crystal-plugins: "
+                    + Contract.EXTENSIONS_INDEX + " was already written in this compilation by another annotation "
+                    + "processor: PF4J's own @Extension processor, which runs whenever pf4j is on the compile "
+                    + "classpath (e.g. through framework-runtime). The extensions compiled here are not in that "
+                    + "index. That is fine for code that is not packaged as a plugin (tests, the host application); "
+                    + "a plugin must not have pf4j on its compile classpath, and its build fails if its index is "
+                    + "incomplete.");
         } catch (IOException e) {
-            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
-                    "crystal-plugins: cannot write " + resource + ": " + e.getMessage());
+            error(resource, e);
         }
+    }
+
+    private void error(String resource, IOException e) {
+        processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
+                "crystal-plugins: cannot write " + resource + ": " + e.getMessage());
     }
 
     private static boolean hasAnnotation(Element element, String annotationName) {

@@ -29,6 +29,7 @@ import java.util.TreeSet;
 public final class PluginPackager {
 
     static final String METADATA = "META-INF/plugin-metadata.json";
+    static final String EXTENSIONS_INDEX = "META-INF/extensions.idx";
     static final String GENERIC_PLUGIN_CLASS = "dev.crystal.plugins.runtime.internal.RolePlugin";
     static final String FRAMEWORK_GROUP = "dev.crystal.plugins";
     static final String FRAMEWORK_API = "framework-api";
@@ -57,6 +58,7 @@ public final class PluginPackager {
             }
             PluginMetadata metadata = PluginMetadata.parse(json);
             checkConsistency(metadata.extensionClasses(), implementations);
+            checkIndex(PluginJarFinisher.read(request.jar(), EXTENSIONS_INDEX), metadata.extensionClasses());
 
             String version = PluginVersions.toSemVer(request.version());
             List<String> warnings = new ArrayList<>();
@@ -106,6 +108,31 @@ public final class PluginPackager {
         }
         throw new BuildException(message.append(". The metadata is stale (the role processor did not run on the "
                 + "current classes). Rebuild from clean.").toString());
+    }
+
+    /**
+     * The runtime discovers extensions through PF4J's index only, so every extension must be in it. The index can
+     * lack them when PF4J's own @Extension processor wrote it (it runs whenever pf4j is on the compile classpath,
+     * and only one processor may create the file per compilation).
+     */
+    private static void checkIndex(String index, Set<String> extensions) {
+        Set<String> listed = new TreeSet<>();
+        if (index != null) {
+            for (String line : index.split("\\R")) {
+                String entry = line.replaceFirst("#.*", "").strip();
+                if (!entry.isEmpty()) {
+                    listed.add(entry);
+                }
+            }
+        }
+        Set<String> missing = new TreeSet<>(extensions);
+        missing.removeAll(listed);
+        if (!missing.isEmpty()) {
+            throw new BuildException(EXTENSIONS_INDEX + " does not list " + missing + ": another annotation processor "
+                    + "wrote it, PF4J's own @Extension processor, which runs whenever pf4j is on the compile classpath. "
+                    + "A plugin should depend on framework-api and the application's API only; remove the dependency "
+                    + "that brings pf4j (typically framework-runtime).");
+        }
     }
 
     private static List<PluginDependency> dependencies(PluginBuildRequest request, Classpath classpath,

@@ -201,10 +201,34 @@ class RoleProcessorTest {
         assertTrue(errors.contains("@RoleInterface can only be placed on an interface"), errors);
     }
 
-    private record Result(List<String> errors, List<String> notes) {
+    @Test
+    void coexistsWithPf4jsOwnProcessor() throws IOException {
+        // A host application or its tests: framework-runtime brings pf4j, whose @Extension processor always
+        // writes META-INF/extensions.idx first. Ours must not break the compilation over it.
+        Result result = compile(Map.of(
+                "app.Exporter", ROLE,
+                "p.Csv", """
+                        package p;
+                        public class Csv implements app.Exporter { public String format() { return "csv"; } }
+                        """), new org.pf4j.processor.ExtensionAnnotationProcessor(), new RoleProcessor());
+
+        assertTrue(result.errors().isEmpty(), result.errors().toString());
+        String warnings = String.join("\n", result.warnings());
+        assertTrue(warnings.contains("META-INF/extensions.idx was already written") && warnings.contains("pf4j"),
+                warnings);
+        assertEquals(List.of("p.Csv"), Files.readAllLines(out.resolve("META-INF/services/app.Exporter")),
+                "services and metadata are still generated");
+        assertTrue(Files.exists(out.resolve("META-INF/plugin-metadata.json")));
+    }
+
+    private record Result(List<String> errors, List<String> notes, List<String> warnings) {
     }
 
     private Result compile(Map<String, String> sources) {
+        return compile(sources, new RoleProcessor());
+    }
+
+    private Result compile(Map<String, String> sources, javax.annotation.processing.Processor... processors) {
         JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
         try (StandardJavaFileManager files = javac.getStandardFileManager(diagnostics, null, StandardCharsets.UTF_8)) {
@@ -219,12 +243,13 @@ class RoleProcessorTest {
             List<String> options = List.of("--release", "21", "-proc:full", "-d", out.toString(),
                     "-cp", System.getProperty("java.class.path"));
             JavaCompiler.CompilationTask task = javac.getTask(null, files, diagnostics, options, null, units);
-            task.setProcessors(List.of(new RoleProcessor()));
+            task.setProcessors(List.of(processors));
             task.call();
         } catch (IOException e) {
             throw new AssertionError(e);
         }
-        return new Result(messages(diagnostics, Diagnostic.Kind.ERROR), messages(diagnostics, Diagnostic.Kind.NOTE));
+        return new Result(messages(diagnostics, Diagnostic.Kind.ERROR), messages(diagnostics, Diagnostic.Kind.NOTE),
+                messages(diagnostics, Diagnostic.Kind.WARNING));
     }
 
     private static List<String> messages(DiagnosticCollector<JavaFileObject> diagnostics, Diagnostic.Kind kind) {

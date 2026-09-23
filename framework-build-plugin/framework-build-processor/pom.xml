@@ -25,6 +25,12 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- Only to run PF4J's own @Extension processor next to ours in a test. -->
+            <groupId>org.pf4j</groupId>
+            <artifactId>pf4j</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
