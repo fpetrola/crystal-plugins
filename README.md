@@ -42,7 +42,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (54 tests)
+mvn install                       # framework (61 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -138,16 +138,15 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
 - **Única clase-frontera.** La app ve `PluginService`, `PluginSources`, `PluginInfo` y `PluginException`.
   No aparece ningún tipo de PF4J o Guice en esa API. Todo lo demás está en `...runtime.internal`.
 - **PF4J es dueño del ciclo de vida y del orden; Guice reacciona.** `RolePlugin` (el `Plugin-Class`
-  genérico) no tiene lógica propia: cuando PF4J lo arranca, `PluginScopes` crea el child-injector,
+  genérico) no tiene lógica propia: cuando PF4J lo arranca, `PluginScopes` crea el injector del plugin,
   instancia las implementaciones, llama a `onStart()` y las publica; cuando lo detiene, hace lo inverso.
-  Así el orden por dependencias, el "dependientes primero" al detener y el unload siguen siendo los de
-  PF4J.
-- **Aislamiento en espejo.** Un classloader por plugin (PF4J) y un child-injector por plugin (Guice), que
-  se crean y descartan juntos. El punto delicado es que Guice crea *bindings just-in-time en el
-  injector más alto posible*: un binding JIT en el root hacia una clase de un plugin fijaría para
-  siempre su classloader. Por eso el root usa `requireExplicitBindings()` y un `InjectionPlanner` recorre
-  los puntos de inyección y enlaza explícitamente en el child todo lo que haga falta. Si algo se escapa,
-  falla con un error en vez de producir una fuga.
+  Así el orden por dependencias y el "dependientes primero" al detener siguen siendo los de PF4J. La
+  excepción es el unload transitivo, que PF4J ordena mal (ver hito 7).
+- **Aislamiento en espejo.** Un classloader por plugin (PF4J) y un injector por plugin (Guice), que se crean
+  y descartan juntos. Cada injector usa `requireExplicitBindings()`, y un `InjectionPlanner` recorre los
+  puntos de inyección y enlaza explícitamente todo lo que haga falta. Si algo se escapa, falla con un
+  error en vez de enlazarse a escondidas. Hasta el hito 6 eran child-injectors de un root; el hito 7
+  mostró que eso fuga y los convirtió en injectors independientes (ver ahí).
 - **`Set<Rol>` inyectado es una vista viva.** No es una copia: siempre refleja los plugins activos.
   Un objeto de la app creado antes de `start()` ve los plugins cuando arrancan, y deja de verlos
   cuando se detienen. Internamente es copy-on-write: la iteración no toma locks y nunca ve un plugin a
@@ -264,6 +263,39 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
 - **De dónde sale `@Replaces`:** el runtime lo lee de la clase, que tiene retención `RUNTIME`. Así vale
   también para el camino manual, y el campo `replaces` del JSON queda como informativo.
 
+### Hito 7: sub-plugins con scopes anidados y unload transitivo
+
+- **`uninstall(pluginId)`** saca el plugin y todos los que dependen de él: los detiene y descarga, tira
+  juntos el classloader y el injector de cada uno, y los quita del conjunto instalado. Sus
+  implementaciones salen de todas las vistas en el momento, y lo que habían reemplazado vuelve a verse:
+  la reversibilidad del hito 6 ahora es observable también a nivel servicio.
+- **Sub-plugins primero, de verdad.** El unload transitivo de PF4J procesa a un dependiente antes que a
+  los dependientes de ese dependiente: en A ← B ← C descarga B mientras C todavía corre sobre él. El
+  orden se calcula aparte (post-orden sobre el grafo de dependientes, hojas primero) y se descarga plugin
+  por plugin en ese orden. Se probó con una cadena de tres, observando el orden de los `onStop()`.
+- **"Limpio" es que nadie de afuera tenga una referencia fija.** El registro anota qué implementaciones
+  se entregaron como referencia **fija** (un `@Inject Rol` simple) mientras se construía algo: los
+  singletons de un plugin, o un objeto hecho con `create()` (este último con una referencia débil,
+  mientras siga vivo). Si algo que no se está descargando tiene una de esas referencias, `uninstall` no
+  hace nada y el mensaje dice quién la tiene. Las vistas `Set<Rol>` y los `Provider<Rol>` nunca atan a un
+  plugin, así que son la forma de inyectar lo que puede irse.
+- **Scopes anidados.** Un sub-plugin (un plugin con exactamente una dependencia requerida) ve los objetos
+  que construyó su padre: el mismo singleton, no una copia. Con varios padres no hay un único scope que
+  lo contenga, y en ese caso llega a los objetos de los otros plugins por roles, como todos.
+- **La fuga que encontró un test, y por qué ya no hay child-injectors.** El test "desinstalar libera el
+  classloader" falló. Un recorrido reflexivo del grafo de objetos dio el camino:
+  `injector root → jitBindingData.bannedKeys (WeakKeySet) → Key<acme.csv.Exporter> → Class →
+  PluginClassLoader`. Cuando un child-injector enlaza una clave, Guice la "prohíbe" en todos sus
+  ancestros y guarda la `Key` de forma **fuerte**. Solo la limpia de a poco: después de que se recolecte el
+  child, y únicamente cuando alguna operación posterior toca esa caché del padre. Por eso ahora cada
+  plugin tiene un **injector independiente**:
+  - los servicios del host vienen de un módulo que instala cada injector (con un provider, no con
+    `toInstance`, para que Guice no les vuelva a inyectar miembros en cada plugin);
+  - el anidamiento se hace **delegando**: el sub-plugin enlaza las claves que su padre ya tiene hacia el
+    injector del padre, y el padre no guarda nada del sub-plugin.
+  
+  Con eso el classloader se recolecta apenas corre el GC, y el test lo verifica.
+
 ### Instalar sin reiniciar: `install(pluginId)`
 
 Resuelve el flujo "falta el plugin que lee este archivo: lo traigo y lo abro". Qué plugin resuelve qué es
@@ -291,11 +323,13 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 ## Estado y límites conocidos
 
-- Hechos: hitos 1 a 6 e `install(pluginId)`. Tests: runtime 32, build core 10, processor 5, API 7.
+- Hechos: hitos 1 a 7 e `install(pluginId)`. Tests: runtime 39, build core 10, processor 5, API 7.
   Además, `examples/` con dos apps y un sub-plugin (5 tests de punta a punta).
-- **Reversibilidad a nivel servicio:** el mecanismo está y está probado (registro, `install`, falla al
-  arrancar), pero todavía no hay una operación pública para detener o sacar un plugin puntual. Llega con
-  el unload del hito 7.
+- **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
+  un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es
+  trabajo del `onStop()`, y de la vista hay que guardar la vista, no sus elementos.
+- **Aplicar actualizaciones en caliente** (reemplazar una versión que corre por otra) todavía no está:
+  `checkForUpdates()` rige desde el próximo arranque. Con `uninstall` + `install` ya están las piezas.
 - **Varios procesos sobre la misma caché:** todas las escrituras son atómicas, pero no hay un lock entre
   procesos. Si dos procesos actualizan a la vez, gana el último; los dos estados son consistentes y, en
   el peor caso, un jar se descarga dos veces.

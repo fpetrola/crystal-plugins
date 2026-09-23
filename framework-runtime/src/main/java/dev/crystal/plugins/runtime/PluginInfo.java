@@ -19,6 +19,8 @@ public record PluginInfo(String id, String version, Status status, Optional<Thro
         STARTED,
         STOPPED,
         FAILED,
-        DISABLED
+        DISABLED,
+        /** Removed by {@link PluginService#uninstall}: stopped, unloaded and no longer installed. */
+        UNLOADED
     }
 }

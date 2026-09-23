@@ -62,6 +62,12 @@ final class PluginJars {
         return this;
     }
 
+    /** Compiles against {@code jar} without depending on it (e.g. a dependency's own dependency). */
+    PluginJars compileAgainst(Path jar) {
+        classpath.add(jar);
+        return this;
+    }
+
     PluginJars withProcessor() {
         processor = true;
         return this;

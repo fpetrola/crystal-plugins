@@ -19,11 +19,6 @@ import org.pf4j.PluginWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.inject.AbstractModule;
-import com.google.inject.Guice;
-import com.google.inject.Injector;
-import com.google.inject.Stage;
-
 import dev.crystal.plugins.api.ConflictResolver;
 import dev.crystal.plugins.api.PluginArtifact;
 import dev.crystal.plugins.api.PluginSource;
@@ -53,8 +48,8 @@ import dev.crystal.plugins.runtime.internal.Roles;
  * }</pre>
  *
  * <p>Internally: jars live in a local, content-addressed cache; PF4J loads them from there (one classloader
- * per plugin, dependency ordering, unload) and Guice wires them (one child injector per plugin). Neither
- * library appears in this class's API.
+ * per plugin, dependency ordering, unload) and Guice wires them (one injector per plugin, dropped with its
+ * classloader). Neither library appears in this class's API.
  */
 public final class PluginService implements AutoCloseable {
 
@@ -86,20 +81,8 @@ public final class PluginService implements AutoCloseable {
                     + "(set cacheDirectory to keep them between runs)", builder.source);
         }
 
-        Map<Class<?>, Object> exposed = builder.exposed;
-        Injector root = Guice.createInjector(Stage.PRODUCTION, new AbstractModule() {
-            @Override
-            @SuppressWarnings({"unchecked", "rawtypes"})
-            protected void configure() {
-                // No just-in-time bindings anywhere in the tree: a JIT binding created in the root for a
-                // plugin class would outlive the plugin and pin its classloader.
-                binder().requireExplicitBindings();
-                exposed.forEach((type, instance) -> bind((Class) type).toInstance(instance));
-            }
-        });
-
         this.manager = new CrystalPluginManager(cache.root());
-        this.scopes = new PluginScopes(root, registry, manager::getExtensionClassNames);
+        this.scopes = new PluginScopes(Map.copyOf(builder.exposed), registry, manager::getExtensionClassNames);
         manager.bind(scopes);
     }
 
@@ -201,6 +184,43 @@ public final class PluginService implements AutoCloseable {
         return plan.stream()
                 .map(a -> all.stream().filter(i -> i.id().equals(a.id())).findFirst().orElseThrow())
                 .toList();
+    }
+
+    /**
+     * Removes {@code pluginId} and every plugin that depends on it: stops and unloads them, sub-plugins first,
+     * dropping each one's classloader and injector together, and takes them out of the installed set. Their
+     * implementations leave every {@link #roles} view at once; implementations they replaced come back.
+     *
+     * <p>Only a clean plugin is unloaded: if something outside the plugins being removed holds a fixed reference
+     * to one of their implementations (a single {@code @Inject Role} in another plugin, or in a live object made
+     * with {@link #create}), nothing is done and the exception says who. {@code Set<Role>} views and
+     * {@code Provider<Role>} never pin a plugin.
+     *
+     * @return the removed plugins, sub-plugins first, as {@code UNLOADED}
+     * @throws IllegalArgumentException if {@code pluginId} is not loaded
+     * @throws PluginException          if a removed plugin is still referenced from outside
+     */
+    public synchronized List<PluginInfo> uninstall(String pluginId) {
+        checkOpen();
+        PluginWrapper plugin = manager.getPlugin(pluginId);
+        if (plugin == null) {
+            throw new IllegalArgumentException("Plugin '" + pluginId + "' is not loaded");
+        }
+        List<String> leavesFirst = manager.withDependents(pluginId);
+        List<String> holders = registry.holdersOutside(Set.copyOf(leavesFirst));
+        if (!holders.isEmpty()) {
+            throw new PluginException("Cannot uninstall " + leavesFirst + ": " + String.join("; ", holders)
+                    + " (inject Set<Role> or Provider<Role> where an implementation may go away)");
+        }
+        List<PluginInfo> removed = leavesFirst.stream()
+                .map(id -> new PluginInfo(id, manager.getPlugin(id).getDescriptor().getVersion(),
+                        PluginInfo.Status.UNLOADED, Optional.empty()))
+                .toList();
+
+        installer.remove(Set.copyOf(leavesFirst));
+        active = active.stream().filter(a -> !leavesFirst.contains(a.id())).toList();
+        manager.unloadInOrder(leavesFirst);
+        return removed;
     }
 
     /**

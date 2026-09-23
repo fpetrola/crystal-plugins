@@ -73,6 +73,34 @@ public final class CrystalPluginManager extends DefaultPluginManager {
         super(pluginsRoot);
     }
 
+    /**
+     * {@code pluginId} and every plugin that depends on it, transitively, leaves first: the order in which they
+     * can be stopped and unloaded without any of them outliving what it depends on.
+     */
+    public List<String> withDependents(String pluginId) {
+        Set<String> order = new java.util.LinkedHashSet<>();
+        collectDependents(pluginId, order);
+        return List.copyOf(order);
+    }
+
+    private void collectDependents(String pluginId, Set<String> order) {
+        for (String dependent : dependencyResolver.getDependents(pluginId)) {
+            collectDependents(dependent, order);
+        }
+        order.add(pluginId);
+    }
+
+    /**
+     * Stops and unloads {@code leavesFirst} in that order. PF4J's own transitive unload handles a dependent
+     * before the dependents of that dependent, so in A &lt;- B &lt;- C it unloads B while C still runs on it.
+     */
+    public void unloadInOrder(List<String> leavesFirst) {
+        for (String pluginId : leavesFirst) {
+            unloadPlugin(pluginId, false, false);
+        }
+        resolveDependencies();
+    }
+
     /** Plugins rejected while resolving, in rejection order. */
     public List<Rejection> rejections() {
         synchronized (rejections) {

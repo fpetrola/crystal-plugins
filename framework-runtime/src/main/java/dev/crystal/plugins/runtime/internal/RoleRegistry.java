@@ -1,7 +1,9 @@
 package dev.crystal.plugins.runtime.internal;
 
+import java.lang.ref.WeakReference;
 import java.util.AbstractSet;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -9,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Supplier;
 
 import com.google.inject.ProvisionException;
 
@@ -25,11 +29,27 @@ import dev.crystal.plugins.api.RoleImplementation;
  *
  * <p>Copy-on-write snapshots: publication (rare) builds a new snapshot; reading (frequent) is lock-free, never
  * sees a half-published plugin, and resolves each role at most once per snapshot.
+ *
+ * <p>It also knows who holds a <em>fixed</em> reference to an implementation: what received it through a single
+ * {@code @Inject Role} while being built (a plugin's singletons, an object made with {@code create()}). Live
+ * views and providers are not fixed references. A plugin is only unloaded when nothing outside the plugins
+ * being unloaded holds one of its implementations (see {@link #holdersOutside}).
  */
 public final class RoleRegistry {
 
+    /** The plugins whose implementations were handed out while the current thread builds something. */
+    private static final ThreadLocal<List<String>> HANDED_OUT = new ThreadLocal<>();
+
+    /** Something built by {@link #build}, with the plugins whose implementations it received fixed. */
+    record Built<T>(T value, List<String> owners) {
+    }
+
+    /** An application object holding a fixed reference; weak, so it does not keep itself alive. */
+    private record ApplicationHolder(WeakReference<Object> object, String type) {
+    }
+
     /** Every contribution, and each role resolved from them (filled lazily). */
-    private record Snapshot(List<Contribution> contributions, Map<Class<?>, List<Object>> resolved) {
+    private record Snapshot(List<Contribution> contributions, Map<Class<?>, List<Contribution>> resolved) {
 
         Snapshot(List<Contribution> contributions) {
             this(List.copyOf(contributions), new ConcurrentHashMap<>());
@@ -39,6 +59,10 @@ public final class RoleRegistry {
     private final ConflictResolver resolver;
     private volatile Snapshot snapshot = new Snapshot(List.of());
     private final Map<Class<?>, Set<?>> views = new ConcurrentHashMap<>();
+    /** Owner plugin → plugins holding fixed references to its implementations. */
+    private final Map<String, Set<String>> pluginHolders = new ConcurrentHashMap<>();
+    /** Owner plugin → application objects holding fixed references to its implementations. */
+    private final Map<String, List<ApplicationHolder>> applicationHolders = new ConcurrentHashMap<>();
 
     public RoleRegistry(ConflictResolver resolver) {
         this.resolver = resolver;
@@ -57,6 +81,65 @@ public final class RoleRegistry {
     synchronized void withdraw(String pluginId, ClassLoader pluginLoader) {
         snapshot = new Snapshot(snapshot.contributions().stream().filter(c -> !c.pluginId().equals(pluginId)).toList());
         views.keySet().removeIf(role -> role.getClassLoader() == pluginLoader);
+        pluginHolders.remove(pluginId);
+        pluginHolders.values().forEach(holders -> holders.remove(pluginId));
+        applicationHolders.remove(pluginId);
+    }
+
+    /** Runs {@code build}, recording whose implementations it receives as fixed references. */
+    <T> Built<T> build(Supplier<T> build) {
+        List<String> previous = HANDED_OUT.get();
+        List<String> owners = new ArrayList<>();
+        HANDED_OUT.set(owners);
+        try {
+            T value = build.get();
+            return new Built<>(value, List.copyOf(owners));
+        } finally {
+            if (previous == null) {
+                HANDED_OUT.remove();
+            } else {
+                HANDED_OUT.set(previous);
+            }
+        }
+    }
+
+    void heldByPlugin(String holder, Collection<String> owners) {
+        for (String owner : owners) {
+            if (!owner.equals(holder)) {
+                pluginHolders.computeIfAbsent(owner, o -> ConcurrentHashMap.newKeySet()).add(holder);
+            }
+        }
+    }
+
+    void heldByApplication(Object holder, Collection<String> owners) {
+        for (String owner : owners) {
+            applicationHolders.computeIfAbsent(owner, o -> new CopyOnWriteArrayList<>())
+                    .add(new ApplicationHolder(new WeakReference<>(holder), holder.getClass().getName()));
+        }
+    }
+
+    /**
+     * Why the plugins {@code unloading} cannot be unloaded together: fixed references to their implementations
+     * held by plugins outside the set, or by application objects still alive. Empty when they are clean.
+     */
+    public List<String> holdersOutside(Set<String> unloading) {
+        List<String> reasons = new ArrayList<>();
+        for (String owner : unloading) {
+            for (String holder : pluginHolders.getOrDefault(owner, Set.of())) {
+                if (!unloading.contains(holder)) {
+                    reasons.add("plugin '" + holder + "' holds an implementation of '" + owner + "'");
+                }
+            }
+            List<ApplicationHolder> holders = applicationHolders.get(owner);
+            if (holders != null) {
+                holders.removeIf(h -> h.object().get() == null);
+                for (ApplicationHolder holder : holders) {
+                    reasons.add("an application object (" + holder.type() + ") holds an implementation of '"
+                            + owner + "'");
+                }
+            }
+        }
+        return reasons;
     }
 
     @SuppressWarnings("unchecked")
@@ -66,24 +149,29 @@ public final class RoleRegistry {
 
     /** The preferred implementation of {@code role}; used for {@code @Inject SomeRole}. */
     <T> T single(Class<T> role, String requester) {
-        List<Object> resolved = resolved(role);
+        List<Contribution> resolved = resolved(role);
         if (resolved.isEmpty()) {
             String who = requester == null ? "the application" : "plugin '" + requester + "'";
             throw new ProvisionException(who + " injects " + role.getName() + " but no active plugin provides it "
                     + "(inject Set<" + role.getSimpleName() + "> to accept zero or many, or declare a dependency on "
                     + "the providing plugin)");
         }
-        return role.cast(resolved.get(0));
+        Contribution chosen = resolved.get(0);
+        List<String> handedOut = HANDED_OUT.get();
+        if (handedOut != null) {
+            handedOut.add(chosen.pluginId());
+        }
+        return role.cast(chosen.instance());
     }
 
     /** The visible implementations of {@code role}, most preferred first, in the current snapshot. */
-    List<Object> resolved(Class<?> role) {
+    List<Contribution> resolved(Class<?> role) {
         Snapshot current = snapshot;
-        List<Object> cached = current.resolved().get(role);
+        List<Contribution> cached = current.resolved().get(role);
         if (cached == null) {
             // Not computeIfAbsent: the resolver is application code and may itself read the registry.
             cached = resolve(role, current.contributions());
-            List<Object> raced = current.resolved().putIfAbsent(role, cached);
+            List<Contribution> raced = current.resolved().putIfAbsent(role, cached);
             if (raced != null) {
                 cached = raced;
             }
@@ -91,27 +179,29 @@ public final class RoleRegistry {
         return cached;
     }
 
-    private List<Object> resolve(Class<?> role, List<Contribution> contributions) {
-        List<RoleImplementation<?>> candidates = new ArrayList<>();
+    private List<Contribution> resolve(Class<?> role, List<Contribution> contributions) {
+        Map<RoleImplementation<?>, Contribution> candidates = new IdentityHashMap<>();
+        List<RoleImplementation<?>> offered = new ArrayList<>();
         for (Contribution c : contributions) {
             if (c.roles().contains(role)) {
-                candidates.add(new RoleImplementation<>(c.instance(), c.pluginId(), c.pluginVersion(), c.replaces()));
+                RoleImplementation<?> implementation =
+                        new RoleImplementation<>(c.instance(), c.pluginId(), c.pluginVersion(), c.replaces());
+                candidates.put(implementation, c);
+                offered.add(implementation);
             }
         }
-        if (candidates.isEmpty()) {
+        if (offered.isEmpty()) {
             return List.of();
         }
-        List<RoleImplementation<?>> chosen = resolver.resolve(role, Collections.unmodifiableList(candidates));
-        Set<RoleImplementation<?>> offered = Collections.newSetFromMap(new IdentityHashMap<>());
-        offered.addAll(candidates);
+        List<RoleImplementation<?>> chosen = resolver.resolve(role, Collections.unmodifiableList(offered));
         Set<RoleImplementation<?>> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        List<Object> result = new ArrayList<>(chosen.size());
+        List<Contribution> result = new ArrayList<>(chosen.size());
         for (RoleImplementation<?> implementation : chosen) {
-            if (!offered.contains(implementation) || !seen.add(implementation)) {
+            if (!candidates.containsKey(implementation) || !seen.add(implementation)) {
                 throw new IllegalStateException(resolver + " must return a subset of the implementations it is "
                         + "given, without repetitions; it returned " + implementation + " for " + role.getName());
             }
-            result.add(implementation.instance());
+            result.add(candidates.get(implementation));
         }
         return List.copyOf(result);
     }
@@ -127,7 +217,7 @@ public final class RoleRegistry {
 
         @Override
         public Iterator<T> iterator() {
-            Iterator<Object> resolved = registry.resolved(role).iterator();
+            Iterator<Contribution> resolved = registry.resolved(role).iterator();
             return new Iterator<>() {
                 @Override
                 public boolean hasNext() {
@@ -136,7 +226,7 @@ public final class RoleRegistry {
 
                 @Override
                 public T next() {
-                    return role.cast(resolved.next());
+                    return role.cast(resolved.next().instance());
                 }
             };
         }

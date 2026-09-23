@@ -152,6 +152,17 @@ public final class PluginInstaller {
         }
     }
 
+    /** Removes {@code pluginIds} from the installed set; their jars stay cached until the next prune. */
+    public void remove(Set<String> pluginIds) {
+        Map<String, PluginArtifact> set = byId(cache.installed().orElse(List.of()));
+        set.keySet().removeAll(pluginIds);
+        try {
+            cache.install(List.copyOf(set.values()));
+        } catch (IOException e) {
+            throw new PluginException("Cannot write the installed set in " + cache.root(), e);
+        }
+    }
+
     /** Depth-first over {@code Plugin-Dependencies}; the plan lists dependencies before their dependents. */
     private final class Planner {
         private final Map<String, PluginArtifact> offered;

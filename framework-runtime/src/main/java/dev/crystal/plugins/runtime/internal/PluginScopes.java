@@ -7,13 +7,20 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
+import org.pf4j.PluginDependency;
 import org.pf4j.PluginRuntimeException;
 import org.pf4j.PluginWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.inject.AbstractModule;
+import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.google.inject.Key;
+import com.google.inject.Module;
+import com.google.inject.Stage;
 
 import dev.crystal.plugins.api.HasLifecycle;
 import dev.crystal.plugins.api.Replaces;
@@ -26,6 +33,17 @@ import dev.crystal.plugins.api.Replaces;
  * the plugin's role implementations, runs {@link HasLifecycle#onStart()} and publishes them; on stop it
  * does the reverse and forgets the injector. The plugin's classloader (PF4J) and injector (Guice) are
  * thus created and dropped together.
+ *
+ * <p>Each scope is a standalone injector, not a child of a long-lived root: Guice records every key a child
+ * binds in all its ancestors ("banned keys"), holding the key, hence the plugin's classes, hence its
+ * classloader, until some later lookup in the ancestor happens to clean it up. A standalone injector dies with
+ * its plugin, completely. Host services come from the host module that every injector installs.
+ *
+ * <p>Scopes nest like plugins do: a sub-plugin, a plugin with exactly one required plugin dependency, has the
+ * keys its parent's injector bound delegated to that injector, so it sees the objects its parent built (the
+ * same singletons, not copies) while the parent holds nothing of it. With several parents there is no single
+ * enclosing scope; such a plugin reaches other plugins' objects through roles, like everyone else. Either way
+ * dependents stop first, so a scope never outlives the one it is nested in.
  */
 public final class PluginScopes {
 
@@ -34,17 +52,30 @@ public final class PluginScopes {
     private record Scope(Injector injector, List<Object> instances) {
     }
 
-    private final Injector root;
+    private final Module host;
+    private final Set<Key<?>> hostKeys;
     private final RoleRegistry registry;
     private final InjectionPlanner planner;
     private final Function<String, Set<String>> extensionClassNames;
     private final Map<String, Scope> scopes = new ConcurrentHashMap<>();
 
-    public PluginScopes(Injector root, RoleRegistry registry, Function<String, Set<String>> extensionClassNames) {
-        this.root = root;
+    /** @param exposed host services, injectable everywhere */
+    public PluginScopes(Map<Class<?>, Object> exposed, RoleRegistry registry,
+                        Function<String, Set<String>> extensionClassNames) {
+        this.hostKeys = exposed.keySet().stream().map(Key::get).collect(Collectors.toUnmodifiableSet());
+        this.host = new AbstractModule() {
+            @Override
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            protected void configure() {
+                // No just-in-time bindings: the planner binds everything explicitly, a miss fails loudly.
+                binder().requireExplicitBindings();
+                // A provider, not toInstance: Guice would inject the host's objects again in every injector.
+                exposed.forEach((type, instance) -> bind((Class) type).toProvider(() -> instance));
+            }
+        };
         this.registry = registry;
         this.extensionClassNames = extensionClassNames;
-        this.planner = new InjectionPlanner(registry, key -> root.getExistingBinding(key) != null);
+        this.planner = new InjectionPlanner(registry);
     }
 
     void activate(PluginWrapper plugin) {
@@ -69,7 +100,17 @@ public final class PluginScopes {
             implementations.add(type);
         }
 
-        Injector injector = root.createChildInjector(planner.plan(implementations, List.of(), id));
+        Injector parent = enclosing(plugin);
+        RoleRegistry.Built<Injector> built = registry.build(() -> {
+            // Singletons are eager (production stage): they are all built, and their fixed references recorded, here.
+            Injector own = Guice.createInjector(Stage.PRODUCTION, host,
+                    planner.plan(implementations, List.of(), id, hostKeys::contains, parent));
+            implementations.forEach(own::getInstance);
+            return own;
+        });
+        Injector injector = built.value();
+        registry.heldByPlugin(id, built.owners());
+
         List<Object> instances = new ArrayList<>(implementations.size());
         List<Contribution> contributions = new ArrayList<>(implementations.size());
         String version = plugin.getDescriptor().getVersion();
@@ -116,10 +157,28 @@ public final class PluginScopes {
         stopAll(id, lifecycles);
     }
 
-    /** Instantiates an application object; its role dependencies are live views. */
+    /** The injector a plugin's scope nests in: its only required plugin dependency's, or none. */
+    private Injector enclosing(PluginWrapper plugin) {
+        List<String> required = plugin.getDescriptor().getDependencies().stream()
+                .filter(d -> !d.isOptional()).map(PluginDependency::getPluginId).toList();
+        if (required.size() == 1) {
+            Scope parent = scopes.get(required.get(0));
+            if (parent != null) {
+                return parent.injector();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Instantiates an application object; its {@code Set<Role>} and {@code Provider<Role>} dependencies are live,
+     * a single role is fixed, and recorded as held by the object until it is garbage collected.
+     */
     public <T> T create(Class<T> type) {
-        Injector injector = root.createChildInjector(planner.plan(List.of(), List.of(type), null));
-        return injector.getInstance(type);
+        RoleRegistry.Built<T> built = registry.build(() -> Guice.createInjector(Stage.PRODUCTION, host,
+                planner.plan(List.of(), List.of(type), null, hostKeys::contains, null)).getInstance(type));
+        registry.heldByApplication(built.value(), built.owners());
+        return built.value();
     }
 
     /** Calls {@link HasLifecycle#onStop()} in reverse order; failures are logged, never propagated. */
