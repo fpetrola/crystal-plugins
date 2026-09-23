@@ -1,0 +1,249 @@
+# Crystal Plugins
+
+Framework de plugins genérico para Java 21 sobre **PF4J** (carga y aislamiento) y **Guice** (inyección),
+con convención sobre configuración. El autor de un plugin escribe **una clase que implementa una
+interfaz-rol**. PF4J y Guice no aparecen ni en la app anfitriona ni en el código del plugin.
+
+```java
+// En la API de la app (o de un plugin):
+@RoleInterface
+public interface ReportExporter { String format(); String export(List<String> h, List<List<String>> rows); }
+
+// Un plugin entero:
+public class CsvExporter implements ReportExporter { ... }
+
+// La app anfitriona:
+try (PluginService plugins = PluginService.builder()
+        .source(miCatalogo)                          // PluginSource de la app (red, disco, lo que sea)
+        .cacheDirectory(datosDeLaApp.resolve("plugins"))
+        .build()) {
+    plugins.start();                                 // desde la caché local: sin red si ya está todo
+    ReportScreen screen = plugins.create(ReportScreen.class);   // @Inject Set<ReportExporter>
+    UpdateReport report = plugins.checkForUpdates(); // la única llamada que consulta la fuente a propósito
+}
+```
+
+## Módulos
+
+| Artefacto                                         | Para quién          | Contenido                                                                     |
+|---------------------------------------------------|---------------------|-------------------------------------------------------------------------------|
+| `framework-api`                                   | autores + app       | `@RoleInterface`, `@Replaces`, `@Needs`, `HasLifecycle`, `PluginSource`. Depende solo de `jakarta.inject-api`. |
+| `framework-build-plugin/framework-build-processor` | build del autor     | Annotation processor de javac, sin dependencias.                              |
+| `framework-build-plugin/framework-build-core`     | build del autor     | Análisis de bytecode (ASM), dependencias ancladas y escritura del jar. No depende de ninguna herramienta de build. |
+| `framework-build-plugin/framework-maven-plugin`   | build del autor     | Adaptador de Maven: conecta el processor y le pasa el proyecto a `framework-build-core`. |
+| `framework-runtime`                               | app                 | `PluginService` + integración interna PF4J/Guice.                             |
+| `app-api` (lo escribe cada app)                   | autores + app       | Interfaces-rol de la app; depende de `framework-api`.                         |
+| `framework-test-harness`                          | —                   | Hito 8.                                                                       |
+
+`examples/` es un build aparte que hace de terceros: dos apps sin relación entre sí (un emulador con
+`Peripheral`, una app de reportes con `ReportExporter`), sus APIs y plugins para cada una, armados con
+el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implementa un rol que define
+`plugin-csv-exporter`) cuya dependencia genera el build.
+
+```bash
+mvn install                       # framework (31 tests)
+(cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
+```
+
+## Autor de un plugin: toda la configuración
+
+```xml
+<dependencies>
+  <dependency>                       <!-- entorno reducido: solo el API jar de la app -->
+    <groupId>com.example</groupId><artifactId>reports-api</artifactId>
+    <scope>provided</scope>
+  </dependency>
+</dependencies>
+<build><plugins>
+  <plugin>
+    <groupId>dev.crystal.plugins</groupId><artifactId>framework-maven-plugin</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <extensions>true</extensions>
+  </plugin>
+</plugins></build>
+```
+
+Se puede declarar una sola vez en un POM padre: los módulos sin implementaciones de roles (APIs, la
+app) quedan intactos.
+
+El formato de lo que se genera es un contrato público: [docs/metadata-format.md](docs/metadata-format.md).
+
+---
+
+## Decisiones de diseño
+
+### Hito 1: `framework-api`
+
+- **Implementar un rol *es* la declaración.** `@RoleInterface` va en la *interfaz*, nunca en la
+  implementación, así la clase del autor no lleva anotaciones. Se busca a través de los
+  super-interfaces, de modo que un sub-rol (`StreamingExporter extends Exporter`) no necesita repetirla.
+- **`@RoleInterface` no tiene valor, a propósito.** La interfaz *es* la identidad del rol: sirve para
+  agrupar, filtrar y mostrar. Un nombre o una categoría paralela ("device", "tool", "format"...) sería
+  una tabla de sinónimos a mantener sincronizada con las interfaces. Esto se confirmó en una adopción
+  real: al pasar a `@RoleInterface`, el campo de categoría y su tabla se borraron sin perder nada.
+- **Retención `RUNTIME`** en todas las anotaciones: el processor encuentra roles en jars ya compilados
+  (nunca ve su código fuente) y el runtime los vuelve a verificar por reflexión.
+- **`jakarta.inject` como vocabulario de inyección.** Es un estándar (JSR-330), no Guice. Autores y app
+  escriben `@Inject`, y Guice sigue siendo un detalle de implementación que se podría reemplazar.
+- **`HasLifecycle` con métodos `default`.** Es opt-in y reemplaza `extends org.pf4j.Plugin`.
+- **`PluginSource` = listar + abrir bytes, con sha256 obligatorio.** Todo lo de red queda del lado de la
+  app. El hash es a la vez verificación de integridad y clave de caché (hito 4).
+- `@Replaces` acepta un id de plugin o `plugin-id:Clase`. `ConflictResolver` no está definido todavía: se
+  diseña en el hito 6, junto con su uso, para no fijar una forma a ciegas.
+
+### Hito 2: plugin de build
+
+- **El processor no depende de nada** y reconoce las anotaciones **por nombre**. No fija una versión de
+  `framework-api` en el build del autor y sirve igual para Maven, Gradle (se declara como `aggregating`
+  en `META-INF/gradle/incremental.annotation.processors`) o javac a mano.
+- **No se genera `@Extension`: se genera su efecto.** Lo que PF4J necesita del `@Extension` es
+  `META-INF/extensions.idx`, que es lo que escribe el processor. El runtime descubre las clases con el
+  finder estándar de PF4J, sin reimplementarlo.
+- **Qué es una extensión.** Una clase pública, concreta, de nivel superior o anidada `static`, que
+  implementa un rol y que el framework puede construir (constructor público sin argumentos o uno con
+  `@Inject`). Una clase que implementa un rol sin cumplir eso (un decorador, una variante que se
+  construye con parámetros, un helper interno) es una clase común que construye su dueño: no va al índice
+  y, si es pública, javac muestra una nota por si faltó un `@Inject`. Solo es error de compilación la
+  intención explícita que no se puede cumplir: un constructor `@Inject` en una clase que no puede ser
+  extensión, dos constructores `@Inject`, o `@Replaces`/`@Needs` en algo que no es extensión.
+- **`META-INF/services` solo lista lo que `ServiceLoader` puede instanciar** (constructor público sin
+  argumentos). Una extensión que solo se construye con `@Inject` va a `extensions.idx` pero no ahí, porque
+  si no `ServiceLoader` lanza `ServiceConfigurationError` a todos los que consumen el rol.
+- **Metadata en dos mitades.** El processor escribe lo que se deriva del fuente; el Maven mojo agrega lo
+  que solo conoce el build (id, versión SemVer, `apiVersion`, `roleApis`) y escribe el manifiesto. Esa
+  división hace que otro build system solo tenga que reemplazar la segunda mitad.
+- **Cero configuración con `<extensions>true</extensions>`.** Un `AbstractMavenLifecycleParticipant`:
+  1. agrega el processor como dependencia `provided` (no llega a los consumidores);
+  2. activa `-proc:full`, porque desde JDK 23 javac ya no ejecuta los processors que encuentra en el
+     classpath. Si el autor usa `annotationProcessorPaths`, lo agrega ahí;
+  3. engancha `package-plugin` en `package`, después de `jar:jar`.
+
+  Lo que el autor configure explícitamente siempre tiene prioridad.
+- **El mojo reescribe el jar ya construido** en vez de tocar la configuración de `maven-jar-plugin`: pone
+  el manifiesto primero (como exige `JarInputStream`) y conserva los timestamps para que los builds
+  reproducibles sigan siéndolo.
+- El participant se registra con `META-INF/plexus/components.xml` y **no** con un índice Sisu. Durante
+  este trabajo apareció que el Sisu que trae Maven 3.8.7 de Debian no puede leer class files de Java 17+,
+  y en ese caso ignora el participant **sin avisar**. El descriptor Plexus carga la clase por nombre.
+
+### Hito 3: `PluginService`
+
+- **Única clase-frontera.** La app ve `PluginService`, `PluginSources`, `PluginInfo` y `PluginException`.
+  No aparece ningún tipo de PF4J o Guice en esa API. Todo lo demás está en `...runtime.internal`.
+- **PF4J es dueño del ciclo de vida y del orden; Guice reacciona.** `RolePlugin` (el `Plugin-Class`
+  genérico) no tiene lógica propia: cuando PF4J lo arranca, `PluginScopes` crea el child-injector,
+  instancia las implementaciones, llama a `onStart()` y las publica; cuando lo detiene, hace lo inverso.
+  Así el orden por dependencias, el "dependientes primero" al detener y el unload siguen siendo los de
+  PF4J.
+- **Aislamiento en espejo.** Un classloader por plugin (PF4J) y un child-injector por plugin (Guice), que
+  se crean y descartan juntos. El punto delicado es que Guice crea *bindings just-in-time en el
+  injector más alto posible*: un binding JIT en el root hacia una clase de un plugin fijaría para
+  siempre su classloader. Por eso el root usa `requireExplicitBindings()` y un `InjectionPlanner` recorre
+  los puntos de inyección y enlaza explícitamente en el child todo lo que haga falta. Si algo se escapa,
+  falla con un error en vez de producir una fuga.
+- **`Set<Rol>` inyectado es una vista viva.** No es una copia: siempre refleja los plugins activos.
+  Un objeto de la app creado antes de `start()` ve los plugins cuando arrancan, y deja de verlos
+  cuando se detienen. Internamente es copy-on-write: la iteración no toma locks y nunca ve un plugin a
+  medio publicar.
+- **`@Inject Rol` (uno solo)** se resuelve contra el único proveedor activo, con errores claros si hay
+  cero o más de uno. El hito 6 reemplaza la regla "más de uno = error" por el `ConflictResolver`.
+- **Servicios del host:** `builder().expose(Clock.class, clock)` los hace inyectables en plugins y en
+  objetos de la app.
+- **Sub-plugins:** un plugin puede declarar sus propios `@RoleInterface` e inyectar `Set<SuRol>`; otro
+  plugin que dependa de él los implementa (ver `pluginsCanDefineRolesForSubPlugins`).
+- **Un plugin roto no tira abajo a los demás.** Una dependencia sin resolver hace que se ignore ese
+  plugin (`IGNORE_PLUGIN_AND_CONTINUE`); una excepción en `onStart()` lo deja en `FAILED` (con la causa en
+  `PluginInfo`) y detiene lo que ya había arrancado.
+- **Sin archivos de configuración:** el `enabled.txt`/`disabled.txt` de PF4J se reemplaza por estado en
+  memoria. El modo es siempre deployment y solo se aceptan jars.
+- **Camino manual:** `Plugin-Class` ausente (PF4J lo completa con `org.pf4j.Plugin`) se trata igual que el
+  genérico; un `Plugin-Class` propio sigue funcionando como plugin PF4J clásico.
+- **De dónde carga PF4J:** siempre de la caché local (ver hito 4).
+
+### Hito 4: caché local, `PluginSource` y carga custom
+
+- **Caché direccionada por contenido.** Contiene `<cache>/objects/<sha256>.jar` y `<cache>/installed.tsv`
+  (el conjunto instalado). Un jar nunca se sobrescribe: sobrescribir un jar que un classloader tiene
+  abierto puede romper la carga de clases de la JVM en curso. Una versión nueva es un archivo nuevo, así
+  que un proceso puede actualizar mientras otro sigue usando los jars anteriores. El layout es interno y
+  no forma parte del contrato; el contrato público es el jar.
+- **El arranque no consulta la fuente.** `start()` lee el conjunto instalado y carga desde la caché. La
+  `PluginSource` solo se consulta en tres casos: el primer arranque (caché vacía), un
+  `checkForUpdates()` explícito, y para restaurar un jar que falta en la caché (misma versión exacta,
+  nunca un upgrade implícito). Una app sin red, o sin fuente configurada, arranca igual.
+- **Cada jar se descarga una sola vez y se verifica.** Si su hash ya está en la caché, no se descarga. El
+  sha256 se calcula durante la copia, y además se verifica que el manifiesto diga el id y la versión que
+  anunció la fuente. Solo entonces el archivo se hace visible, con un move atómico.
+- **Las actualizaciones son todo o nada.** `checkForUpdates()` descarga y verifica todo antes de escribir
+  el nuevo conjunto instalado (escritura atómica). Si algo falla, queda el conjunto anterior. Los
+  plugins en ejecución no se tocan y el conjunto nuevo rige desde el próximo arranque: aplicarlo en
+  caliente requiere el unload transitivo del hito 7. Si se llama antes de `start()`, actualiza lo que se
+  va a cargar.
+- **La fuente elige las versiones, no el framework.** Una fuente ofrece a lo sumo una versión por plugin y
+  el framework instala exactamente eso; si ofrece dos, es un error explícito. No hay "la última"
+  implícita.
+- **PF4J se extiende solo donde hace falta.** `CrystalPluginManager` (que extiende `DefaultPluginManager`)
+  usa un `PluginRepository` que devuelve exactamente los jars del conjunto instalado, en lugar de escanear
+  un directorio. El `PluginLoader` sigue siendo el `JarPluginLoader` estándar: ya carga desde disco local
+  y reemplazarlo no aportaba nada.
+- **El arranque es barato.** No se vuelven a hashear los jars: se verifican al entrar a la caché y después
+  son inmutables y se nombran por su hash. Arrancar es leer un archivo chico y abrir los jars.
+- **La limpieza es acotada.** Después de cada actualización se borran los jars que no están en el conjunto
+  nuevo, ni en el anterior (otros procesos que comparten la caché pueden estar usándolo), ni cargados en
+  este proceso.
+- **Por defecto la caché es temporal.** Sin `cacheDirectory(...)`, cada arranque es un primer arranque, lo
+  que sirve para tests y fuentes locales. Una app con fuente remota pasa su propio directorio: dónde
+  guardar datos lo decide la app, no el framework.
+
+### Hito 5: dependencias por bytecode, ancladas a la versión compilada
+
+- **De dónde sale una dependencia.** `framework-build-core` recorre con ASM todas las clases compiladas del
+  plugin y junta cada tipo que mencionan: descriptores, firmas genéricas (`Set<Dialect>` cuenta),
+  anotaciones y cuerpos de métodos. Cada tipo se clasifica según quién lo provee: el propio plugin, el
+  JDK (paquetes de los módulos del sistema), **API compartida** (entrada `provided` que no es un plugin:
+  se descarta), **otro plugin** (dependencia) o **librería privada** (aviso: un plugin jar no lleva
+  librerías).
+- **Un plugin se reconoce por sus archivos estándar**, igual que en el runtime: el jar tiene `Plugin-Id`
+  en el manifiesto. Da igual si lo construyó este plugin de build, otro o alguien a mano.
+- **Se ancla la versión con que se compiló, nunca "la última".** La dependencia se escribe como
+  `id@<Plugin-Version del jar compilado>`, que es un pin exacto. `@Needs` también se ancla si el plugin
+  está en el classpath. `plugin-metadata.json` guarda además qué tipos generaron cada dependencia, así se
+  puede responder "¿por qué dependo de esto?".
+- **El build se valida a sí mismo.** Con el mismo ASM, el core busca las extensiones reales (aplicando las
+  reglas del processor) y las compara con las que indexó el processor. Si no coinciden, la metadata está
+  vieja (javac no volvió a correr el processor) y el build falla con un mensaje que dice qué hacer, en
+  vez de producir un jar al que le faltan extensiones o que declara otras que ya no existen. Esto
+  resuelve el problema del primer build después de agregar el plugin.
+- **El core no depende de Maven.** `PluginPackager` recibe clases, jar, coordenadas y classpath (cada
+  entrada marcada como `provided` o no). El mojo de Maven quedó como un adaptador chico que solo traduce el
+  proyecto de Maven; un plugin de Gradle haría lo mismo.
+- **Del lado del runtime aparecieron dos problemas de PF4J:**
+  - Sus expresiones de versión (java-semver 0.10) no pueden expresar una pre-release: `1.0.0-SNAPSHOT` no
+    se parsea. Un `VersionManager` propio compara los pins exactos, pre-releases incluidas, y deja los
+    rangos a PF4J.
+  - Cuando un plugin pide otra versión de una dependencia, la recuperación de PF4J
+    (`IGNORE_PLUGIN_AND_CONTINUE`) descarga **la dependencia**, no al plugin que la pidió, y lo hace sin
+    avisar. Así, un pin viejo en un plugin se llevaría puestos a un plugin sano y a todos sus otros
+    dependientes. Se reemplazó ese paso (`resolveDependencies()`): se rechaza al plugin cuyo requisito no
+    se cumple, y en cascada a los que dependen de él. El motivo queda en `plugins()` (por ejemplo
+    `requires csv@1.0.0 but 2.0.0 is installed`). El grafo, el orden y los chequeos siguen siendo de PF4J.
+
+## Estado y límites conocidos
+
+- Hechos: hitos 1 a 5. Tests: runtime 18, build core 9, processor 4. Además, `examples/` con dos apps
+  y un sub-plugin (4 tests de punta a punta).
+- **Varios procesos sobre la misma caché:** todas las escrituras son atómicas, pero no hay un lock entre
+  procesos. Si dos procesos actualizan a la vez, gana el último; los dos estados son consistentes y, en
+  el peor caso, un jar se descarga dos veces.
+- **Metadata vieja:** si javac no vuelve a correr el processor (clases compiladas antes de agregar el
+  plugin de build, o compiladas por otro compilador), el build falla y pide `mvn clean`. Se detecta, pero
+  no se arregla solo.
+- No hay plugin de Gradle todavía. El processor se puede usar tal cual con `annotationProcessor`, y el
+  resto está en `framework-build-core`; falta el adaptador de Gradle, el equivalente al mojo.
+- `plugin-metadata.json` se genera pero el runtime todavía no lo lee (lo necesita el hito 6).
+- **Librerías privadas:** un plugin es un solo jar. Si usa una librería que no es un plugin ni la provee
+  el host, el build avisa, pero empaquetarla (shading) queda a cargo del autor.
+- **Pins exactos:** si la fuente ofrece `csv 1.0.1` y un plugin se compiló contra `1.0.0`, ese plugin se
+  rechaza (con el motivo). Es la regla "nunca la última" del enunciado. Un rango compatible (`^1.0.0`)
+  como opción configurable del build sería una extensión futura; un manifiesto escrito a mano ya puede
+  usar rangos.

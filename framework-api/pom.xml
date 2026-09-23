@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.crystal.plugins</groupId>
+        <artifactId>crystal-plugins-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>framework-api</artifactId>
+    <name>Crystal Plugins :: Framework API</name>
+    <description>
+        The only framework artifact a plugin author compiles against: role/extension annotations,
+        opt-in lifecycle and generic contracts. No PF4J, no Guice.
+    </description>
+
+    <dependencies>
+        <!-- JSR-330 (jakarta flavor) is the injection vocabulary for authors and host apps.
+             It is a standard, not Guice: Guice stays an implementation detail of the runtime. -->
+        <dependency>
+            <groupId>jakarta.inject</groupId>
+            <artifactId>jakarta.inject-api</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>dev.crystal.plugins.api</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

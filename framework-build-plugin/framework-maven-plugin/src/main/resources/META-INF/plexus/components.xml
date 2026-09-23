@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Registers the lifecycle participant. A Plexus descriptor rather than a Sisu index on purpose: Sisu
+  scans indexed classes with its embedded ASM, and some Maven 3.8.x distributions ship a Sisu that
+  cannot read class files newer than Java 11, silently skipping the participant. Plexus descriptors
+  load the class by name and work on every Maven 3.x/4.x.
+-->
+<component-set>
+    <components>
+        <component>
+            <role>org.apache.maven.AbstractMavenLifecycleParticipant</role>
+            <role-hint>crystal-plugins</role-hint>
+            <implementation>dev.crystal.plugins.build.maven.CrystalLifecycleParticipant</implementation>
+        </component>
+    </components>
+</component-set>

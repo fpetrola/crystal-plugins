@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.crystal.plugins</groupId>
+        <artifactId>framework-build-plugin</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>framework-build-processor</artifactId>
+    <name>Crystal Plugins :: Build :: Annotation Processor</name>
+    <description>
+        javac annotation processor that turns "implements a @RoleInterface" into standard plugin metadata.
+        Zero runtime dependencies: annotations are recognized by name, so the processor does not pin a
+        framework-api version on the author's build.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>dev.crystal.plugins</groupId>
+            <artifactId>framework-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- Do not try to run ourselves (the services file is in resources) while compiling. -->
+                    <proc>none</proc>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
