@@ -20,7 +20,8 @@ import org.codehaus.plexus.util.xml.Xpp3Dom;
  *       processors found on the classpath implicitly. If the author already uses
  *       {@code annotationProcessorPaths}, the processor is appended there instead, because javac then ignores
  *       the classpath for discovery;</li>
- *   <li>binds {@code package-plugin} to {@code package}.</li>
+ *   <li>binds {@code package-plugin} to {@code package}, and {@code bundle-plugins} (a no-op unless configured)
+ *       to {@code process-classes}.</li>
  * </ol>
  * Explicit author configuration always wins: nothing here overrides a value that is already set.
  *
@@ -112,14 +113,19 @@ public class CrystalLifecycleParticipant extends AbstractMavenLifecycleParticipa
     }
 
     static void bindPackaging(Plugin self) {
-        boolean bound = self.getExecutions().stream().anyMatch(e -> e.getGoals().contains("package-plugin"));
-        if (bound) {
+        bind(self, EXECUTION_ID, "package", "package-plugin");
+        // A no-op unless bundleGroupId is configured (host applications carrying default plugins).
+        bind(self, "crystal-bundle-plugins", "process-classes", "bundle-plugins");
+    }
+
+    private static void bind(Plugin self, String id, String phase, String goal) {
+        if (self.getExecutions().stream().anyMatch(e -> e.getGoals().contains(goal))) {
             return;
         }
         PluginExecution execution = new PluginExecution();
-        execution.setId(EXECUTION_ID);
-        execution.setPhase("package");
-        execution.addGoal("package-plugin");
+        execution.setId(id);
+        execution.setPhase(phase);
+        execution.addGoal(goal);
         self.addExecution(execution);
     }
 

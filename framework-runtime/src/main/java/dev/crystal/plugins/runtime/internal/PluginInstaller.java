@@ -47,15 +47,24 @@ public final class PluginInstaller {
 
     private final PluginCache cache;
     private final PluginSource source;
+    private final PluginSource defaults;
 
-    /** @param source may be null: the service then runs from whatever the cache holds */
-    public PluginInstaller(PluginCache cache, PluginSource source) {
+    /**
+     * @param source   the catalog; may be null: the service then runs from whatever the cache holds
+     * @param defaults plugins shipped with the application, installed on the first start of a cache; may be null
+     */
+    public PluginInstaller(PluginCache cache, PluginSource source, PluginSource defaults) {
         this.cache = cache;
-        this.source = source;
+        this.defaults = defaults;
+        this.source = source == null ? defaults : defaults == null ? source : new LayeredSource(source, defaults);
     }
 
     /** The plugins to load now: the installed set, every one of them present in the cache. */
     public List<PluginArtifact> prepare() {
+        if (defaults != null && cache.installed().isEmpty()) {
+            // First start of this cache: the application's default plugins, from inside it, no network.
+            installFrom(defaults);
+        }
         List<PluginArtifact> installed = cache.installed().orElse(List.of());
         List<PluginArtifact> missing = installed.stream().filter(a -> !cache.contains(a)).toList();
         if (!missing.isEmpty()) {
@@ -117,6 +126,25 @@ public final class PluginInstaller {
         }
         Map<String, PluginArtifact> previous = byId(cache.installed().orElse(List.of()));
         return commit(previous, next, inUse, downloads, List.of(), List.of());
+    }
+
+    private void installFrom(PluginSource from) {
+        List<PluginArtifact> offered;
+        try {
+            offered = from.artifacts();
+        } catch (IOException e) {
+            throw new PluginException("Cannot list plugins of " + from, e);
+        }
+        Map<String, PluginArtifact> next = byId(offered);
+        int downloads = 0;
+        for (PluginArtifact artifact : next.values()) {
+            try {
+                downloads += cache.fetch(from, artifact) ? 1 : 0;
+            } catch (IOException e) {
+                throw new PluginException("Cannot extract " + artifact.coordinates() + " from " + from, e);
+            }
+        }
+        commit(Map.of(), next, Set.of(), downloads, List.of(), List.of());
     }
 
     private UpdateReport commit(Map<String, PluginArtifact> previous, Map<String, PluginArtifact> next,

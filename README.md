@@ -43,7 +43,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (79 tests)
+mvn install                       # framework (81 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -384,6 +384,26 @@ class GameBrowser {
 - **`@Inject` de Guice también cuenta** (`com.google.inject.Inject`), además de `jakarta` y `javax`, para
   decidir si una clase es extensión: los plugins se construyen con Guice, que lo acepta.
 
+### Plugins por defecto dentro de la aplicación
+
+Una app puede traer sus plugins adentro y usarlos desde el primer arranque sin ir a internet.
+
+- **En el build de la app**, con la propiedad `crystal.bundleGroupId` (por ejemplo `com.example`), el goal
+  `bundle-plugins` (lo engancha solo el plugin de build, en `process-classes`) busca en el repositorio
+  local (`~/.m2`) los artifacts de ese groupId y de los que cuelgan de él, en la versión
+  `crystal.bundleVersion` (por defecto la de la app, nunca "la última"). Se queda con los que son
+  plugins (tienen `Plugin-Id`), deja afuera a la app misma, y los copia a
+  `META-INF/crystal/bundled/` con un índice (`bundled.idx`: id, versión, sha256, archivo). Como van a
+  `target/classes`, cualquier empaquetado los lleva: `jar:jar`, `maven-shade`, etc. Hace falta haber
+  hecho `mvn install` de los plugins antes.
+- **En la app:** `PluginService.builder().defaults(PluginSources.bundled())`. En el primer arranque de
+  una caché, los plugins que trae la app se extraen a la caché, verificados por sha256, y se instalan.
+  Desde ahí son plugins instalados como cualquier otro: uno que el usuario desinstala no vuelve,
+  `install(id)` lo puede traer otra vez desde adentro de la app, y `checkForUpdates()` los considera
+  cuando la fuente principal (si hay) no ofrece ese id.
+- En `examples/host-demo`, el jar de la app lleva los 4 plugins de ejemplo y un test arranca solo con
+  eso.
+
 ### Instalar sin reiniciar: `install(pluginId)`
 
 Resuelve el flujo "falta el plugin que lee este archivo: lo traigo y lo abro". Qué plugin resuelve qué es
@@ -408,7 +428,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 45, build core 10, processor 6, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 46, build core 11, processor 6, API 7, guice 5,
   harness 6. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

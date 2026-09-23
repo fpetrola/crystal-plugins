@@ -76,7 +76,7 @@ public final class PluginService implements AutoCloseable {
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot create a temporary plugin cache", e);
         }
-        this.installer = new PluginInstaller(cache, builder.source);
+        this.installer = new PluginInstaller(cache, builder.source, builder.defaults);
 
         this.manager = new CrystalPluginManager(cache.root());
         this.scopes = new PluginScopes(Map.copyOf(builder.exposed), registry, manager::getExtensionClassNames);
@@ -410,6 +410,7 @@ public final class PluginService implements AutoCloseable {
     /** Configures a {@link PluginService}. Everything is optional. */
     public static final class Builder {
         private PluginSource source;
+        private PluginSource defaults;
         private Path cacheDirectory;
         private ConflictResolver conflictResolver = ConflictResolver.standard();
         private final Map<Class<?>, Object> exposed = new LinkedHashMap<>();
@@ -423,6 +424,18 @@ public final class PluginService implements AutoCloseable {
          */
         public Builder source(PluginSource source) {
             this.source = Objects.requireNonNull(source);
+            return this;
+        }
+
+        /**
+         * Plugins shipped with the application (typically {@link PluginSources#bundled()}): installed on the first
+         * start of the cache, extracted and verified into it, without any network. After that they are ordinary
+         * installed plugins: an uninstalled one does not come back, {@link PluginService#install} can take any of
+         * them again, and {@link PluginService#checkForUpdates()} considers them when the main source does not
+         * offer their id.
+         */
+        public Builder defaults(PluginSource defaults) {
+            this.defaults = Objects.requireNonNull(defaults);
             return this;
         }
 

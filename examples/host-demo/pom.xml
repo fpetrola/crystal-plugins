@@ -11,6 +11,11 @@
     <artifactId>host-demo</artifactId>
     <description>Two unrelated host apps driven by the same, unchanged framework.</description>
 
+    <properties>
+        <!-- Default plugins inside the application: every com.example plugin at this version, from ~/.m2. -->
+        <crystal.bundleGroupId>com.example</crystal.bundleGroupId>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>dev.crystal.plugins</groupId>
