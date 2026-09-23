@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (86 tests)
+mvn install                       # framework (87 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -397,6 +397,11 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   `@Replaces`). Es el árbol de plugins y sub-plugins visto desde los roles.
 - Junto con `heldBy(id)` y `pendingRemovals()` alcanza para una lista con "se puede sacar ahora" o "se
   va al arrancar".
+- **Avisos de cambio:** `onChange(Runnable)` corre después de `start()`, `install`, `uninstall` y
+  `uninstallOnNextStart`, los haga quien los haga, y devuelve un `AutoCloseable` para desuscribirse. Los
+  roles ya son vistas vivas; esto es para lo que la aplicación arma a partir de ellos (menús, ventanas,
+  este panel). Corre en el hilo que hizo el cambio y un listener que falla se loguea sin afectar a los
+  demás. El panel de Swing se suscribe y se refresca solo.
 - **Sale del estado real,** no de `plugin-metadata.json`: el índice de extensiones de PF4J, las clases
   cargadas, el manifiesto, `roles.idx` y el registro. Por eso vale también para plugins con metadata
   escrita a mano.
@@ -463,7 +468,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 48, build core 11, processor 6, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 49, build core 11, processor 6, API 7, guice 5,
   harness 6, swing 3. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

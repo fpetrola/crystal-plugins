@@ -71,6 +71,8 @@ public class PluginsPanel extends JPanel {
         add(south, BorderLayout.SOUTH);
 
         refresh();
+        // Changes made elsewhere (code, another window) show up here too.
+        plugins.onChange(() -> javax.swing.SwingUtilities.invokeLater(this::refresh));
     }
 
     /** Rebuilds both trees from the service's current state. */

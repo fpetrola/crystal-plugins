@@ -65,6 +65,7 @@ public final class PluginService implements AutoCloseable {
     private List<PluginArtifact> active = List.of();
     private boolean started;
     private boolean closed;
+    private final List<Runnable> listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private PluginService(Builder builder) {
         this.registry = new RoleRegistry(builder.conflictResolver);
@@ -112,6 +113,31 @@ public final class PluginService implements AutoCloseable {
         for (PluginWrapper plugin : manager.getPlugins()) {
             if (plugin.getFailedException() != null) {
                 log.error("Plugin '{}' failed", plugin.getPluginId(), plugin.getFailedException());
+            }
+        }
+        changed();
+    }
+
+    /**
+     * Calls {@code listener} after every change to what is running or installed: {@link #start()},
+     * {@link #install}, {@link #uninstall} and {@link #uninstallOnNextStart}, whoever triggers them. For menus and
+     * windows built from the plugins (role views are live already; this is for what the application derives from
+     * them). Runs on the thread that made the change; a Swing listener should hop to the event dispatch thread.
+     * A listener that throws is logged and does not affect the others.
+     *
+     * @return closing it stops the notifications
+     */
+    public AutoCloseable onChange(Runnable listener) {
+        listeners.add(Objects.requireNonNull(listener));
+        return () -> listeners.remove(listener);
+    }
+
+    private void changed() {
+        for (Runnable listener : listeners) {
+            try {
+                listener.run();
+            } catch (RuntimeException e) {
+                log.error("Plugin change listener failed", e);
             }
         }
     }
@@ -194,7 +220,10 @@ public final class PluginService implements AutoCloseable {
             // Already running; if its removal was pending, this cancels it.
             active.stream().filter(a -> a.id().equals(pluginId)).findFirst()
                     .filter(a -> !installer.installedIds().contains(pluginId))
-                    .ifPresent(a -> installer.add(List.of(a)));
+                    .ifPresent(a -> {
+                        installer.add(List.of(a));
+                        changed();
+                    });
             return List.of();
         }
         Map<String, String> loaded = new LinkedHashMap<>();
@@ -214,6 +243,7 @@ public final class PluginService implements AutoCloseable {
                 manager.startPlugin(artifact.id());
             }
         }
+        changed();
         List<PluginInfo> all = plugins();
         return plan.stream()
                 .map(a -> all.stream().filter(i -> i.id().equals(a.id())).findFirst().orElseThrow())
@@ -250,6 +280,7 @@ public final class PluginService implements AutoCloseable {
         installer.remove(Set.copyOf(leavesFirst));
         active = active.stream().filter(a -> !leavesFirst.contains(a.id())).toList();
         manager.unloadInOrder(leavesFirst);
+        changed();
         return removed;
     }
 
@@ -276,6 +307,7 @@ public final class PluginService implements AutoCloseable {
         checkOpen();
         List<String> leavesFirst = manager.getPlugin(pluginId) == null ? List.of(pluginId) : withDependents(pluginId);
         installer.remove(Set.copyOf(leavesFirst));
+        changed();
         return leavesFirst;
     }
 
