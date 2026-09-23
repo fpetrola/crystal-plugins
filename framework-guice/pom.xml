@@ -10,31 +10,31 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>framework-runtime</artifactId>
-    <name>Crystal Plugins :: Runtime</name>
+    <artifactId>framework-guice</artifactId>
+    <name>Crystal Plugins :: Guice adapter</name>
     <description>
-        PluginService: loads plugin jars with PF4J and wires them with one Guice child injector per plugin.
-        The host application only sees PluginService and the framework-api types.
+        Optional adapter for host applications that build their own object graph with Guice: a Module that
+        makes every role injectable in the application's injector. The core API stays free of Guice.
     </description>
 
     <dependencies>
         <dependency>
             <groupId>dev.crystal.plugins</groupId>
-            <artifactId>framework-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pf4j</groupId>
-            <artifactId>pf4j</artifactId>
+            <artifactId>framework-runtime</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>com.google.inject</groupId>
             <artifactId>guice</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
 
+        <dependency>
+            <groupId>dev.crystal.plugins</groupId>
+            <artifactId>framework-runtime</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>dev.crystal.plugins</groupId>
             <artifactId>framework-build-processor</artifactId>
@@ -59,8 +59,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <!-- The processor is a test dependency (tests build plugin jars with it at runtime);
-                         it must not run on the runtime's own test sources. -->
                     <proc>none</proc>
                 </configuration>
             </plugin>
@@ -70,18 +68,10 @@
                 <configuration>
                     <archive>
                         <manifestEntries>
-                            <Automatic-Module-Name>dev.crystal.plugins.runtime</Automatic-Module-Name>
+                            <Automatic-Module-Name>dev.crystal.plugins.guice</Automatic-Module-Name>
                         </manifestEntries>
                     </archive>
                 </configuration>
-                <executions>
-                    <execution>
-                        <!-- PluginJars and the fixtures, for the tests of framework-guice. -->
-                        <goals>
-                            <goal>test-jar</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
         </plugins>
     </build>

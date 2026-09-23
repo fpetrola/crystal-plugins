@@ -33,7 +33,8 @@ Lista las **extensiones** del plugin. Una extensión es una clase:
 - que implementa, directamente o a través de sus supertipos, al menos una interfaz anotada con
   `@dev.crystal.plugins.api.RoleInterface`;
 - que el framework puede construir: tiene un constructor público sin argumentos o exactamente un
-  constructor anotado con `@jakarta.inject.Inject` (también se acepta `javax.inject.Inject`).
+  constructor anotado con `@Inject`, sea `jakarta.inject.Inject`, `javax.inject.Inject` o
+  `com.google.inject.Inject`.
 
 Una clase que implementa un rol pero no cumple esto (un decorador, una variante que se construye con
 parámetros, un helper interno) **no** es una extensión: el framework no la crea y no va al índice.
@@ -66,6 +67,13 @@ sirva sin el framework (tests, herramientas, otros contenedores). Solo incluyen 
 `ServiceLoader` puede instanciar, es decir las que tienen constructor público sin argumentos. Una
 extensión que solo se construye por su constructor `@Inject` está en `extensions.idx` pero no acá:
 listarla haría que `ServiceLoader` lance `ServiceConfigurationError` para todos los que consumen ese rol.
+
+### `META-INF/crystal/roles.idx`
+
+Las interfaces `@RoleInterface` que *define* el jar, un nombre binario por línea (`#` inicia un
+comentario). Se escribe en todo jar que define roles, sea plugin o no (las APIs de la app también), y es
+lo que usan los adaptadores de inyección (`framework-guice`) para descubrir los roles sin que nadie los
+liste. Se puede escribir a mano.
 
 ### `META-INF/plugin-metadata.json`
 

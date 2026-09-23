@@ -9,12 +9,11 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
-
-import com.google.inject.ProvisionException;
 
 import dev.crystal.plugins.api.ConflictResolver;
 import dev.crystal.plugins.api.RoleImplementation;
@@ -152,7 +151,7 @@ public final class RoleRegistry {
         List<Contribution> resolved = resolved(role);
         if (resolved.isEmpty()) {
             String who = requester == null ? "the application" : "plugin '" + requester + "'";
-            throw new ProvisionException(who + " injects " + role.getName() + " but no active plugin provides it "
+            throw new NoSuchElementException(who + " injects " + role.getName() + " but no active plugin provides it "
                     + "(inject Set<" + role.getSimpleName() + "> to accept zero or many, or declare a dependency on "
                     + "the providing plugin)");
         }
@@ -162,6 +161,23 @@ public final class RoleRegistry {
             handedOut.add(chosen.pluginId());
         }
         return role.cast(chosen.instance());
+    }
+
+    /**
+     * The visible implementations of {@code role} now, as a fixed list. Inside {@link #build} they are recorded as
+     * handed out: whoever keeps the list holds them all.
+     */
+    <T> List<T> fixed(Class<T> role) {
+        List<Contribution> resolved = resolved(role);
+        List<String> handedOut = HANDED_OUT.get();
+        List<T> result = new ArrayList<>(resolved.size());
+        for (Contribution c : resolved) {
+            if (handedOut != null) {
+                handedOut.add(c.pluginId());
+            }
+            result.add(role.cast(c.instance()));
+        }
+        return List.copyOf(result);
     }
 
     /** The visible implementations of {@code role}, most preferred first, in the current snapshot. */

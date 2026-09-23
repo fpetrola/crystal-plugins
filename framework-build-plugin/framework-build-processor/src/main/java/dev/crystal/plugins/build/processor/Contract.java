@@ -15,12 +15,16 @@ public final class Contract {
 
     public static final String JAKARTA_INJECT = "jakarta.inject.Inject";
     public static final String JAVAX_INJECT = "javax.inject.Inject";
+    /** Guice's own annotation: the runtime builds plugins with Guice, which accepts it. */
+    public static final String GUICE_INJECT = "com.google.inject.Inject";
 
     /** PF4J's extension index; one class name per line, {@code #} starts a comment. */
     public static final String EXTENSIONS_INDEX = "META-INF/extensions.idx";
     /** Framework metadata, JSON. */
     public static final String METADATA = "META-INF/plugin-metadata.json";
     public static final String SERVICES_DIR = "META-INF/services/";
+    /** The @RoleInterface interfaces a jar defines, one binary name per line; how adapters discover roles. */
+    public static final String ROLES_INDEX = "META-INF/crystal/roles.idx";
 
     /** Version of the plugin-metadata.json layout written by this processor. */
     public static final int METADATA_FORMAT = 1;

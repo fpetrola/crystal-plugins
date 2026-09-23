@@ -33,6 +33,7 @@ try (PluginService plugins = PluginService.builder()
 | `framework-build-plugin/framework-build-core`     | build del autor     | Análisis de bytecode (ASM), dependencias ancladas y escritura del jar. No depende de ninguna herramienta de build. |
 | `framework-build-plugin/framework-maven-plugin`   | build del autor     | Adaptador de Maven: conecta el processor y le pasa el proyecto a `framework-build-core`. |
 | `framework-runtime`                               | app                 | `PluginService` + integración interna PF4J/Guice.                             |
+| `framework-guice` (opcional)                      | app con Guice propio | `PluginsModule`: los roles se inyectan en el injector de la app.             |
 | `app-api` (lo escribe cada app)                   | autores + app       | Interfaces-rol de la app; depende de `framework-api`.                         |
 | `framework-test-harness`                          | —                   | Hito 8.                                                                       |
 
@@ -42,7 +43,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (61 tests)
+mvn install                       # framework (67 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -296,6 +297,38 @@ El formato de lo que se genera es un contrato público: [docs/metadata-format.md
   
   Con eso el classloader se recolecta apenas corre el GC, y el test lo verifica.
 
+### Apps con su propio injector: `framework-guice`
+
+Una app que arma su grafo de objetos con Guice quiere que sus clases pidan `Set<Rol>` a **su** injector,
+sin `create()` ni `roles()` y sin importar nada del framework. Es lo que pide el enunciado ("la app
+consume inyectando"). Para no meter Guice en la API del core, va como adaptador opcional:
+
+```java
+Injector injector = Guice.createInjector(new AppModule(), PluginsModule.of(plugins));
+
+class GameBrowser {
+    @Inject GameBrowser(Set<Equipment> equipment) { ... }   // aparecen, sin saber de dónde
+}
+```
+
+- **Descubre los roles solo.** El processor escribe `META-INF/crystal/roles.idx` en todo jar que *define*
+  roles, incluidas las APIs de la app. `PluginsModule.of(plugins)` lee esos índices del classpath y, si un
+  jar no lo tiene, se le pasan los roles a mano.
+- **Qué enlaza por cada rol:** `Set<Rol>` (la vista viva), `Rol` (el preferido, fijo al construir) y
+  `Provider<Rol>` (el preferido en cada `get()`).
+- **Rastrea referencias fijas también en el grafo de la app,** con un `ProvisionListener` que construye
+  cada objeto dentro de `PluginService.building(...)`. Así `uninstall` sabe si un objeto de la app todavía
+  tiene un plugin.
+- **Roles que se consumen antes de que el injector exista.** El caso real es un rol que *es* un
+  `Module` de Guice: los plugins configuran el injector de la app. Se toman con `snapshot(rol)` dentro de
+  `building(...)`, y quedan registrados como retenidos por ese injector. Si no, un plugin cuyo módulo ya
+  está adentro del injector de la app se podría desinstalar "limpio" y seguir ejecutando desde un
+  classloader descargado.
+- **El core ganó tres métodos que no dependen de ningún contenedor,** para que cualquier adaptador
+  (Spring, CDI...) se escriba igual: `preferred(rol)`, `snapshot(rol)` y `building(supplier)`.
+- **`@Inject` de Guice también cuenta** (`com.google.inject.Inject`), además de `jakarta` y `javax`, para
+  decidir si una clase es extensión: los plugins se construyen con Guice, que lo acepta.
+
 ### Instalar sin reiniciar: `install(pluginId)`
 
 Resuelve el flujo "falta el plugin que lee este archivo: lo traigo y lo abro". Qué plugin resuelve qué es
@@ -323,8 +356,9 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 ## Estado y límites conocidos
 
-- Hechos: hitos 1 a 7 e `install(pluginId)`. Tests: runtime 39, build core 10, processor 5, API 7.
-  Además, `examples/` con dos apps y un sub-plugin (5 tests de punta a punta).
+- Hechos: hitos 1 a 7, `install(pluginId)` y el adaptador `framework-guice`. Tests: runtime 39, build
+  core 10, processor 6, API 7, guice 5. Además, `examples/` con dos apps, un sub-plugin y una app con su
+  propio injector (6 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
   un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es
   trabajo del `onStop()`, y de la vista hay que guardar la vista, no sus elementos.

@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -245,6 +246,48 @@ public final class PluginService implements AutoCloseable {
     public <T> T create(Class<T> type) {
         checkOpen();
         return scopes.create(type);
+    }
+
+    /**
+     * The preferred implementation of {@code role} right now: what a single {@code @Inject Role} receives (by
+     * default, the one of highest version, after {@code @Replaces}). Meant for dependency-injection adapters;
+     * application code injects instead. Whoever keeps the result holds a fixed reference: see
+     * {@link #building} and {@link #uninstall}.
+     *
+     * @throws IllegalArgumentException if {@code role} is not a {@code @RoleInterface}
+     * @throws java.util.NoSuchElementException if no active plugin provides it
+     */
+    public <T> T preferred(Class<T> role) {
+        requireRole(role);
+        return scopes.preferred(role);
+    }
+
+    /**
+     * The visible implementations of {@code role} now, as a fixed list rather than a live view: for what has to
+     * be consumed before any injection exists, typically roles that configure the application's own container
+     * while it is being built. Called inside {@link #building}, the implementations are recorded as held by what
+     * is built, so {@link #uninstall} refuses to pull them from under it:
+     *
+     * <pre>{@code
+     * Injector injector = plugins.building(() ->
+     *         Guice.createInjector(new AppModule(plugins.snapshot(Extension.class)), PluginsModule.of(plugins)));
+     * }</pre>
+     */
+    public <T> List<T> snapshot(Class<T> role) {
+        requireRole(role);
+        return scopes.snapshot(role);
+    }
+
+    /**
+     * Runs {@code build}, typically a dependency-injection container constructing one object, and records every
+     * implementation {@link #preferred} or {@link #snapshot} hands out meanwhile as held by the object
+     * {@code build} returns, until that object is garbage collected. This is how {@link #uninstall} knows that an
+     * application object still holds a plugin; {@link #create} and the adapters work this way. Calls nest: an
+     * object built inside another is the holder of what it received itself.
+     */
+    public <T> T building(Supplier<T> build) {
+        checkOpen();
+        return scopes.building(build);
     }
 
     /**

@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.pf4j.PluginDependency;
@@ -175,9 +176,26 @@ public final class PluginScopes {
      * a single role is fixed, and recorded as held by the object until it is garbage collected.
      */
     public <T> T create(Class<T> type) {
-        RoleRegistry.Built<T> built = registry.build(() -> Guice.createInjector(Stage.PRODUCTION, host,
+        return building(() -> Guice.createInjector(Stage.PRODUCTION, host,
                 planner.plan(List.of(), List.of(type), null, hostKeys::contains, null)).getInstance(type));
-        registry.heldByApplication(built.value(), built.owners());
+    }
+
+    /** See {@code PluginService.preferred}. */
+    public <T> T preferred(Class<T> role) {
+        return registry.single(role, null);
+    }
+
+    /** See {@code PluginService.snapshot}. */
+    public <T> List<T> snapshot(Class<T> role) {
+        return registry.fixed(role);
+    }
+
+    /** See {@code PluginService.building}. */
+    public <T> T building(Supplier<T> build) {
+        RoleRegistry.Built<T> built = registry.build(build);
+        if (built.value() != null) {
+            registry.heldByApplication(built.value(), built.owners());
+        }
         return built.value();
     }
 

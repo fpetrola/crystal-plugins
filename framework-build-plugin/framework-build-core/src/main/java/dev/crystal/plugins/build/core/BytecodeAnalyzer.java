@@ -34,7 +34,8 @@ import org.objectweb.asm.commons.Remapper;
 final class BytecodeAnalyzer {
 
     static final String ROLE_INTERFACE = "Ldev/crystal/plugins/api/RoleInterface;";
-    private static final Set<String> INJECT = Set.of("Ljakarta/inject/Inject;", "Ljavax/inject/Inject;");
+    private static final Set<String> INJECT =
+            Set.of("Ljakarta/inject/Inject;", "Ljavax/inject/Inject;", "Lcom/google/inject/Inject;");
 
     /**
      * What extension detection needs from a class file.

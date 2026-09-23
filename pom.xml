@@ -16,6 +16,7 @@
         <module>framework-api</module>
         <module>framework-build-plugin</module>
         <module>framework-runtime</module>
+        <module>framework-guice</module>
     </modules>
 
     <properties>

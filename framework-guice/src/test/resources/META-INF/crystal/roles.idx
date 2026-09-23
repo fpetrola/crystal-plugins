@@ -1,0 +1,3 @@
+# Written by hand: the fixtures of framework-runtime are compiled without the processor.
+dev.crystal.plugins.runtime.fixtures.ReportExporter
+dev.crystal.plugins.runtime.fixtures.Peripheral

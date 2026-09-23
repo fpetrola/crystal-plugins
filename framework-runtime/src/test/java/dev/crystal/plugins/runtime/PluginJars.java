@@ -31,7 +31,7 @@ import dev.crystal.plugins.build.processor.RoleProcessor;
  * <p>{@link #withProcessor()} runs the real role processor (what the build plugin does); otherwise the
  * extension index is written by hand, proving the runtime only depends on standard files.
  */
-final class PluginJars {
+public final class PluginJars {
 
     private final String id;
     private final String version;
@@ -47,44 +47,44 @@ final class PluginJars {
         this.version = version;
     }
 
-    static PluginJars plugin(String id, String version) {
+    public static PluginJars plugin(String id, String version) {
         return new PluginJars(id, version);
     }
 
-    PluginJars source(String className, String code) {
+    public PluginJars source(String className, String code) {
         sources.put(className, code);
         return this;
     }
 
-    PluginJars dependsOn(String pluginId, Path jar) {
+    public PluginJars dependsOn(String pluginId, Path jar) {
         dependencies.add(pluginId);
         classpath.add(jar);
         return this;
     }
 
     /** Compiles against {@code jar} without depending on it (e.g. a dependency's own dependency). */
-    PluginJars compileAgainst(Path jar) {
+    public PluginJars compileAgainst(Path jar) {
         classpath.add(jar);
         return this;
     }
 
-    PluginJars withProcessor() {
+    public PluginJars withProcessor() {
         processor = true;
         return this;
     }
 
     /** Hand-written extension index entry (manual path). */
-    PluginJars indexed(String className) {
+    public PluginJars indexed(String className) {
         manualIndex.add(className);
         return this;
     }
 
-    PluginJars pluginClass(String pluginClass) {
+    public PluginJars pluginClass(String pluginClass) {
         this.pluginClass = pluginClass;
         return this;
     }
 
-    Path buildInto(Path directory) {
+    public Path buildInto(Path directory) {
         try {
             Path classes = Files.createTempDirectory(directory, id + "-classes");
             compile(classes);
