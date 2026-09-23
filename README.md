@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (87 tests)
+mvn install                       # framework (89 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -370,6 +370,23 @@ class GameBrowser {
 - **Descubre los roles solo.** El processor escribe `META-INF/crystal/roles.idx` en todo jar que *define*
   roles, incluidas las APIs de la app. `PluginsModule.of(plugins)` lee esos índices del classpath y, si un
   jar no lo tiene, se le pasan los roles a mano.
+- **En un jar único (fat jar) hay que fusionar `META-INF/crystal/roles.idx`.** Cada módulo trae el suyo y
+  con el mismo nombre; `maven-shade` y `assembly` se quedan con uno solo, y los roles de los demás no se
+  enlazan. El síntoma no dice la causa: Guice falla con "No implementation for Set<Rol> was bound". En
+  shade:
+
+  ```xml
+  <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+    <resource>META-INF/crystal/roles.idx</resource>
+  </transformer>
+  ```
+
+  (y `ServicesResourceTransformer` para `META-INF/services`, como siempre). Los plugins que van adentro
+  de la app con `bundle-plugins` no tienen este problema: viajan como jars enteros. Para que no se
+  descubra en la máquina de un usuario, el goal `check-roles` (enganchado solo en `verify`, después de
+  shade) revisa los jars que produjo el proyecto: si alguno tiene un `@RoleInterface` que su
+  `roles.idx` no lista, el build falla con el nombre del rol. `-Dcrystal.skipRolesCheck` lo saltea (para
+  roles que se pasan a mano). Ojo: `mvn package` no llega a `verify`.
 - **Qué enlaza por cada rol:** `Set<Rol>` (la vista viva), `Rol` (el preferido, fijo al construir) y
   `Provider<Rol>` (el preferido en cada `get()`).
 - **Rastrea referencias fijas también en el grafo de la app,** con un `ProvisionListener` que construye
@@ -470,7 +487,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 49, build core 11, processor 6, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 49, build core 13, processor 6, API 7, guice 5,
   harness 6, swing 3. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

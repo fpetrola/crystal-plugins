@@ -21,7 +21,8 @@ import org.codehaus.plexus.util.xml.Xpp3Dom;
  *       {@code annotationProcessorPaths}, the processor is appended there instead, because javac then ignores
  *       the classpath for discovery;</li>
  *   <li>binds {@code package-plugin} to {@code package}, and {@code bundle-plugins} (a no-op unless configured)
- *       to {@code process-classes}.</li>
+ *       to {@code process-classes}, and {@code check-roles} (roles missing from the index of a single jar) to
+ *       {@code verify}.</li>
  * </ol>
  * Explicit author configuration always wins: nothing here overrides a value that is already set.
  *
@@ -116,6 +117,8 @@ public class CrystalLifecycleParticipant extends AbstractMavenLifecycleParticipa
         bind(self, EXECUTION_ID, "package", "package-plugin");
         // A no-op unless bundleGroupId is configured (host applications carrying default plugins).
         bind(self, "crystal-bundle-plugins", "process-classes", "bundle-plugins");
+        // After package, so it sees the final jar (a shaded one included).
+        bind(self, "crystal-check-roles", "verify", "check-roles");
     }
 
     private static void bind(Plugin self, String id, String phase, String goal) {

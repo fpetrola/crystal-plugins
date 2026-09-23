@@ -75,6 +75,10 @@ comentario). Se escribe en todo jar que define roles, sea plugin o no (las APIs 
 lo que usan los adaptadores de inyección (`framework-guice`) para descubrir los roles sin que nadie los
 liste. Se puede escribir a mano.
 
+Todos los módulos lo escriben con el mismo nombre, así que al armar un jar único hay que concatenarlos
+(en `maven-shade`, `AppendingTransformer` con `<resource>META-INF/crystal/roles.idx</resource>`); si no,
+queda uno solo y los roles de los otros no se descubren.
+
 ### `META-INF/plugin-metadata.json`
 
 Descriptor completo, para herramientas y para los próximos hitos (resolución de conflictos, chequeos
