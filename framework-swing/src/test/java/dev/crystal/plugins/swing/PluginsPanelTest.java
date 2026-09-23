@@ -112,6 +112,8 @@ class PluginsPanelTest {
             assertEquals("Installed md", panel.installSelected());
 
             assertEquals(List.of("csv"), plugins.available().stream().map(a -> a.id()).toList());
+            assertEquals("directory(" + repo + ")", plugins.origin(plugins.available().get(0)),
+                    "by default, the source's own description");
             assertTrue(lines(PluginTrees.byPlugin(plugins)).contains("md 2.0.0"), "running at once");
         }
     }

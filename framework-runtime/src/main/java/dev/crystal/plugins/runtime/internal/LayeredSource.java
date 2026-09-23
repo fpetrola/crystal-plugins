@@ -57,6 +57,16 @@ final class LayeredSource implements PluginSource {
     }
 
     @Override
+    public synchronized String origin(PluginArtifact artifact) {
+        for (Map.Entry<PluginArtifact, PluginSource> e : origin.entrySet()) {
+            if (e.getKey().equals(artifact)) {
+                return e.getValue().origin(e.getKey());
+            }
+        }
+        return toString();
+    }
+
+    @Override
     public String toString() {
         return main + " + " + defaults;
     }

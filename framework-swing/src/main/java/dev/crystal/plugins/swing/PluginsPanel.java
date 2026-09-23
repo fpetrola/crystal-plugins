@@ -174,7 +174,8 @@ public class PluginsPanel extends JPanel {
 
     private JPanel availableTab() {
         available.setCellRenderer((list, value, index, selected, focus) -> {
-            JLabel label = new JLabel(value.id() + " " + value.version());
+            String origin = plugins.origin(value);
+            JLabel label = new JLabel(value.id() + " " + value.version() + (origin.isBlank() ? "" : " — " + origin));
             label.setOpaque(true);
             label.setBackground(selected ? list.getSelectionBackground() : list.getBackground());
             label.setForeground(selected ? list.getSelectionForeground() : list.getForeground());

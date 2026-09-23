@@ -156,6 +156,14 @@ public final class PluginService implements AutoCloseable {
         return installer.available();
     }
 
+    /**
+     * Where an artifact from {@link #available()} comes from, as its source words it ("plugins folder", "GitHub
+     * release"...); see {@link PluginSource#origin}.
+     */
+    public String origin(PluginArtifact artifact) {
+        return installer.origin(artifact);
+    }
+
     private Set<String> inUse() {
         return active.stream().map(PluginArtifact::sha256).collect(Collectors.toSet());
     }

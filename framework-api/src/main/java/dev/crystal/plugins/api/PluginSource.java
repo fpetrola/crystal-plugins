@@ -31,4 +31,13 @@ public interface PluginSource {
      * artifacts that are not cached yet. The caller closes the stream.
      */
     InputStream open(PluginArtifact artifact) throws IOException;
+
+    /**
+     * Where an artifact returned by {@link #artifacts()} comes from, in words for a person ("plugins folder",
+     * "GitHub release"...): a source that merges several places tells which one won. Shown by plugin windows;
+     * never part of the artifact's identity. Defaults to this source's {@code toString()}.
+     */
+    default String origin(PluginArtifact artifact) {
+        return toString();
+    }
 }

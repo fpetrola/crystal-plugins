@@ -233,6 +233,11 @@ public final class PluginInstaller {
         return byId(offer()).values().stream().filter(a -> !installed.contains(a.id())).toList();
     }
 
+    /** See {@link PluginSource#origin}; empty without a source. */
+    public String origin(PluginArtifact artifact) {
+        return source == null ? "" : source.origin(artifact);
+    }
+
     /** The ids in the installed set. */
     public Set<String> installedIds() {
         Set<String> ids = new TreeSet<>();
