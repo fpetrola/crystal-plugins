@@ -20,7 +20,7 @@ import dev.crystal.plugins.build.core.PluginBundler;
  * the jar (or the uber-jar) carries them. The application installs them with
  * {@code PluginService.builder().defaults(PluginSources.bundled())}.
  *
- * <p>Does nothing unless {@code bundleGroupId} is set. Runs at {@code process-classes}, before the tests, so the
+ * <p>Does nothing unless {@code bundleGroupId} is set; when set, finding no plugins fails the build. Runs at {@code process-classes}, before the tests, so the
  * application's tests see the bundled plugins too.
  */
 @Mojo(name = "bundle-plugins", defaultPhase = LifecyclePhase.PROCESS_CLASSES, threadSafe = true)
@@ -54,10 +54,13 @@ public class BundlePluginsMojo extends AbstractMojo {
             throw new MojoExecutionException("crystal: " + e.getMessage(), e);
         }
         if (bundled.isEmpty()) {
-            getLog().warn("crystal: no plugins of " + bundleGroupId + " at version " + bundleVersion + " in "
-                    + localRepository);
+            // An application without its default plugins looks just like a good one: stop here, not at a user.
+            throw new MojoExecutionException("crystal: no plugins of " + bundleGroupId + " at version "
+                    + bundleVersion + " in " + localRepository + ": install them (mvn install) before building the"
+                    + " application, or build without bundling (-Dcrystal.bundleGroupId=)");
         }
         bundled.forEach(b -> getLog().info("crystal: bundled " + b.id() + "@" + b.version() + " (" + b.coordinates()
                 + ")"));
+        getLog().info("crystal: " + bundled.size() + " plugins of " + bundleGroupId + " bundled in the application");
     }
 }

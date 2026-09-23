@@ -435,7 +435,9 @@ Una app puede traer sus plugins adentro y usarlos desde el primer arranque sin i
   plugins (tienen `Plugin-Id`), deja afuera a la app misma, y los copia a
   `META-INF/crystal/bundled/` con un índice (`bundled.idx`: id, versión, sha256, archivo). Como van a
   `target/classes`, cualquier empaquetado los lleva: `jar:jar`, `maven-shade`, etc. Hace falta haber
-  hecho `mvn install` de los plugins antes.
+  hecho `mvn install` de los plugins antes: si no encuentra ninguno, el build falla (un jar sin sus
+  plugins por defecto parece igual al bueno), y si encuentra, el log dice cuántos metió. Para armar la
+  app sin plugins adentro, `-Dcrystal.bundleGroupId=` lo apaga.
 - **En la app:** `PluginService.builder().defaults(PluginSources.bundled())`. En el primer arranque de
   una caché, los plugins que trae la app se extraen a la caché, verificados por sha256, y se instalan.
   Desde ahí son plugins instalados como cualquier otro: uno que el usuario desinstala no vuelve,
