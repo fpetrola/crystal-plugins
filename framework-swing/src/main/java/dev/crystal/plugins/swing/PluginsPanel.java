@@ -155,12 +155,12 @@ public class PluginsPanel extends JPanel {
     public void refresh() {
         List<String> selected = selectedPlugins();
         Set<String> expanded = expanded(installed, PluginTrees.Node::pluginId);
-        show(installed, PluginTrees.grouped(PluginTrees.byPlugin(plugins)), expanded, PluginTrees.Node::pluginId);
+        show(installed, PluginTrees.grouped(PluginTrees.byPlugin(plugins), sharedPrefixes()), expanded, PluginTrees.Node::pluginId);
         Set<String> roles = expanded(byRole, PluginTrees.Node::tooltip);
         List<String> loaded = plugins.plugins().stream().map(PluginInfo::id).toList();
         offered = offered.stream().filter(o -> !loaded.contains(o.artifact().id())).toList();
         List<String> availableSelected = selectedIds(available);
-        show(available, PluginTrees.grouped(PluginTrees.available(offered)), expanded(available, PluginTrees.Node::pluginId),
+        show(available, PluginTrees.grouped(PluginTrees.available(offered), sharedPrefixes()), expanded(available, PluginTrees.Node::pluginId),
                 PluginTrees.Node::pluginId);
         selectIn(available, availableSelected);
         show(byRole, PluginTrees.byRole(plugins, offered), roles, PluginTrees.Node::tooltip);
@@ -270,6 +270,20 @@ public class PluginsPanel extends JPanel {
         if (!paths.isEmpty()) {
             tree.scrollPathToVisible(paths.get(0));
         }
+    }
+
+    /** Id prefixes shared by at least two plugins, installed or available: the groups of both lists. */
+    private Set<String> sharedPrefixes() {
+        java.util.Map<String, Integer> count = new java.util.HashMap<>();
+        plugins.plugins().forEach(p -> count.merge(String.valueOf(PluginTrees.prefix(p.id())), 1, Integer::sum));
+        offered.forEach(o -> count.merge(String.valueOf(PluginTrees.prefix(o.artifact().id())), 1, Integer::sum));
+        Set<String> shared = new java.util.HashSet<>();
+        count.forEach((prefix, n) -> {
+            if (n >= 2 && !prefix.equals("null")) {
+                shared.add(prefix);
+            }
+        });
+        return shared;
     }
 
     /** The installed list, for tests. */

@@ -469,7 +469,8 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   el build toma del `<name>` del pom del plugin (Maven no lo hereda del padre) o de la propiedad
   `crystal.pluginName`. El id queda en los datos chicos, y sin nombre se muestra el id como siempre
   (`PluginInfo.name()`, `PluginDescription.name()`). Los plugins cuyo id comparte prefijo (`device-`,
-  `tool-`) van agrupados bajo un nodo por prefijo, cuando son al menos dos. Seleccionar el grupo equivale
+  `tool-`) van agrupados bajo un nodo por prefijo, cuando son al menos dos contando las dos listas: así un
+  plugin solo de un lado sigue agrupado y con su nombre corto. Seleccionar el grupo equivale
   a seleccionar todos sus plugins, para instalar o sacar. Dentro de un grupo, un plugin sin nombre
   propio se muestra con su id sin el prefijo (`beeper`), y el id completo queda en los datos.
 

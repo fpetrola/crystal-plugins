@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import javax.swing.SwingUtilities;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -237,6 +238,11 @@ class PluginsPanelTest {
             }
             assertEquals("tape", tape.label().name(), "without a name, the id minus the group's prefix");
             assertEquals("device-tape · 1.0.0", tape.label().detail());
+
+            DefaultMutableTreeNode alone = PluginTrees.grouped(PluginTrees.byPlugin(plugins), Set.of("device", "tool"));
+            assertEquals(2, alone.getChildCount(), "tool-csv alone gets its group when the prefix is shared elsewhere");
+            assertEquals("csv", ((PluginTrees.Node) ((DefaultMutableTreeNode) alone.getChildAt(1).getChildAt(0))
+                    .getUserObject()).label().name());
 
             onEdt(() -> {
                 PluginsPanel panel = new PluginsPanel(plugins);

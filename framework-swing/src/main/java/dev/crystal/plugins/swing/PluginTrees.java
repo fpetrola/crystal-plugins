@@ -221,6 +221,21 @@ public final class PluginTrees {
      * under a node for that prefix, when at least two do. Knows no prefix in particular: it only reads the ids.
      */
     public static DefaultMutableTreeNode grouped(DefaultMutableTreeNode root) {
+        return grouped(root, null);
+    }
+
+    /** The prefix of {@code id} up to its first dash, or null. */
+    public static String prefix(String id) {
+        return id != null && id.indexOf('-') > 0 ? id.substring(0, id.indexOf('-')) : null;
+    }
+
+    /**
+     * {@link #grouped(DefaultMutableTreeNode)} with the prefixes decided elsewhere: every plugin whose prefix is in
+     * {@code prefixes} goes under its group, even alone. The panel passes the prefixes shared by at least two
+     * plugins across both of its lists, so moving one plugin to the other side keeps it grouped (and short).
+     * Null: decide from this tree only.
+     */
+    public static DefaultMutableTreeNode grouped(DefaultMutableTreeNode root, Set<String> prefixes) {
         java.util.Map<String, List<DefaultMutableTreeNode>> byPrefix = new java.util.LinkedHashMap<>();
         List<DefaultMutableTreeNode> children = new java.util.ArrayList<>();
         for (int i = 0; i < root.getChildCount(); i++) {
@@ -234,7 +249,7 @@ public final class PluginTrees {
         DefaultMutableTreeNode result = new DefaultMutableTreeNode(root.getUserObject());
         java.util.Map<String, DefaultMutableTreeNode> groups = new java.util.TreeMap<>();
         byPrefix.forEach((prefix, members) -> {
-            if (members.size() >= 2) {
+            if (prefixes == null ? members.size() >= 2 : prefixes.contains(prefix)) {
                 Node group = new Node(prefix, null, members.size() + " plugins", PluginIcons.group(), null, true)
                         .label(null, prefix, String.valueOf(members.size()), null);
                 groups.put(prefix, new DefaultMutableTreeNode(group));
