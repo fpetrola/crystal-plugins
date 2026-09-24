@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (100 tests)
+mvn install                       # framework (102 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -521,12 +521,18 @@ Un plugin lleva adentro las bibliotecas que necesita y la app no tiene, sin conf
 - **En el build,** `package-plugin` mete en `lib/` del jar las dependencias `compile` y `runtime` que no
   son de la familia de la app. Deja afuera las del mismo groupId que el plugin (o uno debajo, donde viven
   los módulos de la app), el framework, los plugins, lo `provided` y todo lo que venga colgado de esas.
-  El log dice cuáles lleva ("carries 2 libraries in lib/: gson-2.11.0, ..."). `-Dcrystal.pluginLibraries=false`
+  Lo de la familia de la app cuenta como `provided` aunque no lo diga el pom: no se empaqueta ni genera la
+  advertencia de "neither a plugin nor provided". El log dice cuáles lleva ("carries 2 libraries in lib/:
+  gson-2.11.0, ..."). `-Dcrystal.pluginLibraries=false`
   lo apaga.
 - **Al cargar,** cada `lib/*.jar` se extrae una vez a la caché (`libs/<sha256>.jar`, compartido entre plugins
   que lleven los mismos bytes) y se suma al classloader del plugin. Una biblioteca que la app ya tiene no
   se vuelve a cargar: se usa la de la app, así un objeto de esa biblioteca es la misma clase en la app y en
   el plugin.
+- **Plugin biblioteca:** un módulo sin extensiones cuyas clases usan otros plugins (por ejemplo, el
+  soporte IDE que comparten seis dispositivos) se marca con `<crystal.plugin>true</crystal.plugin>` en su
+  pom. Recibe `Plugin-Id`, los plugins que lo usan lo detectan como dependencia por el bytecode, y viaja en
+  el bundle como cualquier plugin. En tiempo de ejecución, sus clases se ven desde los que dependen de él.
 - **Aislamiento:** cada plugin tiene su classloader (plugin, después sus dependencias, después la app),
   así que dos plugins con distintas versiones de la misma biblioteca no se pisan. Para compartir una sola
   copia entre varios, se hace un plugin "biblioteca" y los demás dependen de él con `@Needs`.
@@ -555,7 +561,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 55, build core 14, processor 7, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 56, build core 15, processor 7, API 7, guice 5,
   harness 6, swing 6. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

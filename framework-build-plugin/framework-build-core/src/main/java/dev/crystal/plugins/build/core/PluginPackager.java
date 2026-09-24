@@ -51,6 +51,14 @@ public final class PluginPackager {
             Set<String> implementations = bytecode.extensions();
             String json = PluginJarFinisher.read(request.jar(), METADATA);
 
+            if (json == null && implementations.isEmpty() && request.library()) {
+                // A library plugin: no extensions, only what the processor would say about its roles.
+                String roles = PluginJarFinisher.read(request.jar(), "META-INF/crystal/roles.idx");
+                List<String> defined = roles == null ? List.of() : roles.lines()
+                        .map(l -> l.replaceFirst("#.*", "").strip()).filter(l -> !l.isEmpty()).sorted().toList();
+                json = "{\n  \"format\": 1,\n  \"extensions\": [],\n  \"definesRoles\": ["
+                        + String.join(", ", defined.stream().map(r -> "\"" + r + "\"").toList()) + "]\n}\n";
+            }
             if (json == null) {
                 if (implementations.isEmpty()) {
                     return PackagingResult.notAPlugin();

@@ -131,6 +131,22 @@ class PluginPackagerTest {
     }
 
     @Test
+    void aLibraryPluginIsAPluginWithoutExtensions() throws IOException {
+        Path jar = buildPlugin(Map.of("acme.ide.Channel", """
+                package acme.ide;
+                public class Channel { public int port() { return 0x1F; } }
+                """), true);
+        PackagingResult result = PluginPackager.finish(new PluginBuildRequest(dir.resolve("classes"), jar, "ide",
+                "1.0", "acme", "ide", null, List.of(frameworkApi, inject, appApi, multiPlugin), null, true));
+
+        assertTrue(result.plugin());
+        try (JarFile file = new JarFile(jar.toFile())) {
+            assertEquals("ide", file.getManifest().getMainAttributes().getValue("Plugin-Id"));
+        }
+        assertTrue(PluginJarFinisher.read(jar, PluginPackager.METADATA).contains("\"extensions\": []"));
+    }
+
+    @Test
     void needsIsPinnedWhenThePluginIsOnTheClasspath() {
         Path jar = buildPlugin(Map.of("acme.tsv.TsvExporter", """
                 package acme.tsv;

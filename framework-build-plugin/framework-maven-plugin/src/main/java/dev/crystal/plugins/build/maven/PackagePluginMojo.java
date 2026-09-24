@@ -48,6 +48,13 @@ public class PackagePluginMojo extends AbstractMojo {
     @Parameter(property = "crystal.pluginLibraries", defaultValue = "true")
     private boolean libraries;
 
+    /**
+     * A plugin even without extensions: a module whose classes (and roles) other plugins use. It gets a
+     * {@code Plugin-Id}, the plugins that use it depend on it, and it travels in the bundle like any plugin.
+     */
+    @Parameter(property = "crystal.plugin", defaultValue = "false")
+    private boolean library;
+
     @Parameter(property = "crystal.skip", defaultValue = "false")
     private boolean skip;
 
@@ -66,12 +73,15 @@ public class PackagePluginMojo extends AbstractMojo {
                 .filter(a -> a.getFile() != null)
                 .map(a -> new ClasspathEntry(a.getFile().toPath(), a.getGroupId(), a.getArtifactId(),
                         a.getBaseVersion(),
-                        Artifact.SCOPE_PROVIDED.equals(a.getScope()) || Artifact.SCOPE_SYSTEM.equals(a.getScope()),
+                        // The application's family (same groupId or one under it) is supplied by the application,
+                        // as if provided: shared API, not a library to carry nor to warn about.
+                        Artifact.SCOPE_PROVIDED.equals(a.getScope()) || Artifact.SCOPE_SYSTEM.equals(a.getScope())
+                                || family(a.getGroupId()),
                         libraries && library(a)))
                 .toList();
         PluginBuildRequest request = new PluginBuildRequest(new File(project.getBuild().getOutputDirectory()).toPath(),
                 jar.toPath(), pluginId, project.getVersion(), project.getGroupId(), project.getArtifactId(),
-                project.getDescription(), classpath, name());
+                project.getDescription(), classpath, name(), library);
 
         PackagingResult result;
         try {

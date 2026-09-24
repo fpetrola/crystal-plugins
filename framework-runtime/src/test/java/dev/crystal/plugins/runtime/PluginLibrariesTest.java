@@ -80,4 +80,31 @@ class PluginLibrariesTest {
             assertEquals("application", plugins.roles(ReportExporter.class).iterator().next().format());
         }
     }
+
+    @Test
+    void aLibraryPluginLendsItsClassesToThePluginsThatDependOnIt() throws Exception {
+        Path ide = PluginJars.plugin("device-ide", "1.0.0")
+                .source("acme.ide.Channel", """
+                        package acme.ide;
+                        public class Channel { public static String name() { return "ide"; } }
+                        """).buildInto(repo);
+        PluginJars.plugin("device-divide", "1.0.0").withProcessor().dependsOn("device-ide@1.0.0", ide)
+                .source("acme.divide.Exporter", """
+                        package acme.divide;
+                        import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                        import java.util.List;
+                        public class Exporter implements ReportExporter {
+                            public String format() { return "divide over " + acme.ide.Channel.name(); }
+                            public String export(List<String> rows) { return ""; }
+                        }
+                        """).buildInto(repo);
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo))
+                .cacheDirectory(cache).build()) {
+            plugins.installAll();
+            plugins.start();
+            assertEquals("divide over ide", plugins.roles(ReportExporter.class).iterator().next().format());
+            assertTrue(plugins.plugins().stream().allMatch(p -> p.status() == PluginInfo.Status.STARTED),
+                    plugins.plugins().toString());
+        }
+    }
 }
