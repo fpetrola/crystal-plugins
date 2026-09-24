@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (105 tests)
+mvn install                       # framework (106 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -427,6 +427,11 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   roles ya son vistas vivas; esto es para lo que la aplicación arma a partir de ellos (menús, ventanas,
   este panel). Corre en el hilo que hizo el cambio y un listener que falla se loguea sin afectar a los
   demás. El panel de Swing se suscribe y se refresca solo.
+- **Aviso antes de descargar:** `beforeUnload(Consumer<String>)` llama con el id de cada plugin que se va,
+  los dependientes primero, antes de detenerlo y cerrar su classloader, en `uninstall` y en `close()`. Es
+  para que la app suelte lo que tomó del plugin y seguiría usando, por ejemplo un look and feel: con
+  `onChange` ya es tarde, porque el classloader está cerrado. Corre en el hilo que descarga (el Remove del
+  panel corre en el hilo de Swing).
 - **Lo que trae la app también cuenta.** Si la app implementa un rol suyo (un módulo propio, no un
   plugin) y lo declara en `META-INF/services` (el processor lo hace solo), `start()` lo activa antes que los
   plugins, como si fuera un plugin más con id `application` y versión `0.0.0`: aparece en `roles()`,
@@ -573,7 +578,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 57, build core 15, processor 7, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 58, build core 15, processor 7, API 7, guice 5,
   harness 6, swing 8. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

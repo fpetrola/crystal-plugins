@@ -75,6 +75,8 @@ public final class PluginService implements AutoCloseable {
     private boolean started;
     private boolean closed;
     private final List<Runnable> listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final List<java.util.function.Consumer<String>> unloadListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private PluginService(Builder builder) {
         this.registry = new RoleRegistry(builder.conflictResolver);
@@ -157,6 +159,35 @@ public final class PluginService implements AutoCloseable {
     public AutoCloseable onChange(Runnable listener) {
         listeners.add(Objects.requireNonNull(listener));
         return () -> listeners.remove(listener);
+    }
+
+    /**
+     * Calls {@code listener} with the id of each plugin about to be unloaded, while its classes still load: before
+     * it is stopped and its classloader closed, dependents first, by {@link #uninstall} and {@link #close()}. For
+     * letting go of what the application took from the plugin and would keep using (a look and feel, a renderer, a
+     * cached instance): {@link #onChange} comes after, when the classloader is closed and it is too late.
+     *
+     * <p>Runs synchronously on the thread that unloads (a panel's Remove runs on the event dispatch thread, so a
+     * Swing listener there may touch Swing directly; elsewhere it should use {@code invokeAndWait}). A listener
+     * that throws is logged and does not stop the unload.
+     *
+     * @return closing it stops the notifications
+     */
+    public AutoCloseable beforeUnload(java.util.function.Consumer<String> listener) {
+        unloadListeners.add(Objects.requireNonNull(listener));
+        return () -> unloadListeners.remove(listener);
+    }
+
+    private void unloading(List<String> leavesFirst) {
+        for (String id : leavesFirst) {
+            for (java.util.function.Consumer<String> listener : unloadListeners) {
+                try {
+                    listener.accept(id);
+                } catch (RuntimeException e) {
+                    log.error("Plugin unload listener failed for '{}'", id, e);
+                }
+            }
+        }
     }
 
     private void changed() {
@@ -325,6 +356,7 @@ public final class PluginService implements AutoCloseable {
 
         installer.remove(Set.copyOf(leavesFirst));
         active = active.stream().filter(a -> !leavesFirst.contains(a.id())).toList();
+        unloading(leavesFirst);
         manager.unloadInOrder(leavesFirst);
         changed();
         return removed;
@@ -532,6 +564,10 @@ public final class PluginService implements AutoCloseable {
             return;
         }
         closed = true;
+        List<String> all = new ArrayList<>(manager.getResolvedPlugins().stream().map(PluginWrapper::getPluginId)
+                .toList());
+        java.util.Collections.reverse(all); // dependents first
+        unloading(all);
         manager.stopPlugins();
         manager.unloadPlugins();
         scopes.deactivateApplication(APPLICATION);
