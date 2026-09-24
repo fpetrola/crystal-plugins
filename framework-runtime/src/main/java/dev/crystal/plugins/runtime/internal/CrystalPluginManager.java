@@ -140,7 +140,7 @@ public final class CrystalPluginManager extends DefaultPluginManager {
 
     @Override
     protected PluginLoader createPluginLoader() {
-        return new JarPluginLoader(this);
+        return new LibrariesPluginLoader(this, getPluginsRoot().resolve("libs"));
     }
 
     @Override

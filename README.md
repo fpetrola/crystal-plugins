@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (96 tests)
+mvn install                       # framework (99 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -514,6 +514,23 @@ Una app puede traer sus plugins adentro y usarlos desde el primer arranque sin i
 - En `examples/host-demo`, el jar de la app lleva los 4 plugins de ejemplo y un test arranca solo con
   eso.
 
+### Bibliotecas de terceros de un plugin
+
+Un plugin lleva adentro las bibliotecas que necesita y la app no tiene, sin configurar nada.
+
+- **En el build,** `package-plugin` mete en `lib/` del jar las dependencias `compile` y `runtime` que no
+  son de la familia de la app. Deja afuera las del mismo groupId que el plugin (o uno debajo, donde viven
+  los módulos de la app), el framework, los plugins, lo `provided` y todo lo que venga colgado de esas.
+  El log dice cuáles lleva ("carries 2 libraries in lib/: gson-2.11.0, ..."). `-Dcrystal.pluginLibraries=false`
+  lo apaga.
+- **Al cargar,** cada `lib/*.jar` se extrae una vez a la caché (`libs/<sha256>.jar`, compartido entre plugins
+  que lleven los mismos bytes) y se suma al classloader del plugin. Una biblioteca que la app ya tiene no
+  se vuelve a cargar: se usa la de la app, así un objeto de esa biblioteca es la misma clase en la app y en
+  el plugin.
+- **Aislamiento:** cada plugin tiene su classloader (plugin, después sus dependencias, después la app),
+  así que dos plugins con distintas versiones de la misma biblioteca no se pisan. Para compartir una sola
+  copia entre varios, se hace un plugin "biblioteca" y los demás dependen de él con `@Needs`.
+
 ### Instalar sin reiniciar: `install(pluginId)`
 
 Resuelve el flujo "falta el plugin que lee este archivo: lo traigo y lo abro". Qué plugin resuelve qué es
@@ -538,7 +555,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 53, build core 13, processor 6, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 55, build core 14, processor 6, API 7, guice 5,
   harness 6, swing 6. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

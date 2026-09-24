@@ -29,7 +29,7 @@ import dev.crystal.plugins.build.core.PluginPackager;
  * after {@code jar:jar}.
  */
 @Mojo(name = "package-plugin", defaultPhase = LifecyclePhase.PACKAGE, threadSafe = true,
-        requiresDependencyResolution = ResolutionScope.COMPILE)
+        requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME)
 public class PackagePluginMojo extends AbstractMojo {
 
     static final String FRAMEWORK_GROUP = "dev.crystal.plugins";
@@ -40,6 +40,13 @@ public class PackagePluginMojo extends AbstractMojo {
     /** Plugin id; defaults to the artifactId, which is already unique within a groupId. */
     @Parameter(property = "crystal.pluginId", defaultValue = "${project.artifactId}")
     private String pluginId;
+
+    /**
+     * Whether the plugin carries its third-party libraries in {@code lib/} (see {@link #library}). False: none,
+     * the host must supply them all.
+     */
+    @Parameter(property = "crystal.pluginLibraries", defaultValue = "true")
+    private boolean libraries;
 
     @Parameter(property = "crystal.skip", defaultValue = "false")
     private boolean skip;
@@ -59,7 +66,8 @@ public class PackagePluginMojo extends AbstractMojo {
                 .filter(a -> a.getFile() != null)
                 .map(a -> new ClasspathEntry(a.getFile().toPath(), a.getGroupId(), a.getArtifactId(),
                         a.getBaseVersion(),
-                        Artifact.SCOPE_PROVIDED.equals(a.getScope()) || Artifact.SCOPE_SYSTEM.equals(a.getScope())))
+                        Artifact.SCOPE_PROVIDED.equals(a.getScope()) || Artifact.SCOPE_SYSTEM.equals(a.getScope()),
+                        libraries && library(a)))
                 .toList();
         PluginBuildRequest request = new PluginBuildRequest(new File(project.getBuild().getOutputDirectory()).toPath(),
                 jar.toPath(), pluginId, project.getVersion(), project.getGroupId(), project.getArtifactId(),
@@ -75,7 +83,13 @@ public class PackagePluginMojo extends AbstractMojo {
             getLog().debug("crystal: no role implementations in " + jar.getName() + ", not a plugin");
             return;
         }
-        result.warnings().forEach(w -> getLog().warn("crystal: " + w));
+        result.warnings().forEach(w -> {
+            if (w.startsWith("carries ")) {
+                getLog().info("crystal: " + w);
+            } else {
+                getLog().warn("crystal: " + w);
+            }
+        });
         String dependencies = result.dependencies().isEmpty() ? "no dependencies"
                 : "depends on " + result.dependencies().stream().map(PluginMojos::describe)
                         .collect(Collectors.joining(", "));
@@ -91,6 +105,37 @@ public class PackagePluginMojo extends AbstractMojo {
         static String describe(PluginDependency d) {
             return d.version() == null ? d.id() + " (any version, @Needs)" : d.id() + "@" + d.version();
         }
+    }
+
+    /**
+     * Whether {@code a} is a third-party library the plugin carries: needed at run time ({@code compile} or
+     * {@code runtime}) and not part of the application's family: not of the plugin's own groupId (or one under it,
+     * where the application's modules live), not the framework, and not brought in by any of those. What the
+     * application family brings, the application has; the runtime also skips a carried library the application
+     * turns out to have.
+     */
+    private boolean library(Artifact a) {
+        if (!Artifact.SCOPE_COMPILE.equals(a.getScope()) && !Artifact.SCOPE_RUNTIME.equals(a.getScope())) {
+            return false;
+        }
+        if (!"jar".equals(a.getType()) || family(a.getGroupId())) {
+            return false;
+        }
+        List<String> trail = a.getDependencyTrail();
+        if (trail != null) {
+            for (int i = 1; i < trail.size() - 1; i++) { // between the project and the artifact itself
+                if (family(trail.get(i).substring(0, trail.get(i).indexOf(':')))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean family(String groupId) {
+        String own = project.getGroupId();
+        return groupId.equals(own) || groupId.startsWith(own + ".") || groupId.equals(FRAMEWORK_GROUP)
+                || groupId.startsWith(FRAMEWORK_GROUP + ".");
     }
 
     /**

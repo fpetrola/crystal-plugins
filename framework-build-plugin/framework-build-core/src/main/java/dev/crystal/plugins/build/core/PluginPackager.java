@@ -1,6 +1,8 @@
 package dev.crystal.plugins.build.core;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -84,8 +86,19 @@ public final class PluginPackager {
             manifest.put("Crystal-Api-Version", apiVersion);
             manifest.put("Crystal-Metadata", METADATA);
 
+            Map<String, Path> libraries = new LinkedHashMap<>();
+            for (ClasspathEntry entry : request.classpath()) {
+                if (entry.library() && Files.isRegularFile(entry.path()) && classpath.plugin(entry).isEmpty()) {
+                    libraries.put("lib/" + entry.artifactId() + "-" + entry.version() + ".jar", entry.path());
+                }
+            }
             PluginJarFinisher.finish(request.jar(), manifest, METADATA, metadata.complete(request.pluginId(), version,
-                    apiVersion, roleApis(request, classpath, metadata), dependencies));
+                    apiVersion, roleApis(request, classpath, metadata), dependencies), libraries);
+            if (!libraries.isEmpty()) {
+                warnings.add("carries " + libraries.size() + " librar" + (libraries.size() == 1 ? "y" : "ies")
+                        + " in lib/: " + String.join(", ", libraries.keySet().stream()
+                        .map(n -> n.substring(4, n.length() - 4)).toList()));
+            }
             return new PackagingResult(true, request.pluginId(), version, metadata.implementedRoles(), dependencies,
                     warnings);
         } catch (IOException e) {
@@ -177,6 +190,7 @@ public final class PluginPackager {
             }
         }
 
+        privateLibraries.keySet().removeIf(ClasspathEntry::library); // carried in lib/
         privateLibraries.forEach((entry, types) -> warnings.add("Types of " + entry.coordinates() + " are used "
                 + "(e.g. " + types.iterator().next() + ") but it is neither a plugin nor provided: a jar plugin does "
                 + "not carry libraries. Bundle it into the plugin jar, or declare it provided if the host supplies it."));

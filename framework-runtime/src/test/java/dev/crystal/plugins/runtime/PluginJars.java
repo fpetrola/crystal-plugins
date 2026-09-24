@@ -41,6 +41,7 @@ public final class PluginJars {
     private final List<String> manualIndex = new ArrayList<>();
     private boolean processor;
     private String name;
+    private final List<Path> libraries = new ArrayList<>();
     private String pluginClass = "dev.crystal.plugins.runtime.internal.RolePlugin";
 
     private PluginJars(String id, String version) {
@@ -65,6 +66,13 @@ public final class PluginJars {
 
     /** Compiles against {@code jar} without depending on it (e.g. a dependency's own dependency). */
     public PluginJars compileAgainst(Path jar) {
+        classpath.add(jar);
+        return this;
+    }
+
+    /** A third-party library jar the plugin carries in {@code lib/} (and compiles against). */
+    public PluginJars library(Path jar) {
+        libraries.add(jar);
         classpath.add(jar);
         return this;
     }
@@ -106,6 +114,10 @@ public final class PluginJars {
         try {
             Path classes = Files.createTempDirectory(directory, id + "-classes");
             compile(classes);
+            for (Path library : libraries) {
+                Files.createDirectories(classes.resolve("lib"));
+                Files.copy(library, classes.resolve("lib").resolve(library.getFileName()));
+            }
             if (!processor) {
                 Path index = classes.resolve("META-INF/extensions.idx");
                 Files.createDirectories(index.getParent());

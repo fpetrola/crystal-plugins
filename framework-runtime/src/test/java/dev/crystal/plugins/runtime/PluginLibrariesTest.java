@@ -1,0 +1,83 @@
+package dev.crystal.plugins.runtime;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+
+class PluginLibrariesTest {
+
+    @TempDir
+    Path repo;
+    @TempDir
+    Path elsewhere;
+    @TempDir
+    Path cache;
+
+    @Test
+    void aPluginUsesTheLibrariesItCarriesThatTheApplicationLacks() throws Exception {
+        // A third-party library the application does not have.
+        Path library = PluginJars.plugin("rest-lib", "1.0.0").pluginClass(null)
+                .source("org.thirdparty.Rest", """
+                        package org.thirdparty;
+                        public class Rest { public static String call() { return "rest"; } }
+                        """).buildInto(elsewhere);
+        PluginJars.plugin("catalogue", "1.0.0").withProcessor().library(library)
+                .source("acme.catalogue.Exporter", """
+                        package acme.catalogue;
+                        import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                        import java.util.List;
+                        public class Exporter implements ReportExporter {
+                            public String format() { return org.thirdparty.Rest.call(); }
+                            public String export(List<String> rows) { return ""; }
+                        }
+                        """).buildInto(repo);
+
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo))
+                .cacheDirectory(cache).build()) {
+            plugins.installAll();
+            plugins.start();
+            assertEquals("rest", plugins.roles(ReportExporter.class).iterator().next().format(),
+                    "loaded from the plugin's lib/");
+            try (var libs = Files.list(cache.resolve("libs"))) {
+                assertTrue(libs.anyMatch(p -> p.getFileName().toString().matches("[0-9a-f]{64}\\.jar")),
+                        "extracted once into the cache, by content");
+            }
+        }
+    }
+
+    @Test
+    void aLibraryTheApplicationHasIsTheApplicationsCopy() throws Exception {
+        // The plugin carries a jar with a class the application already has (the fixture role itself).
+        Path library = PluginJars.plugin("copy", "1.0.0").pluginClass(null)
+                .source("dev.crystal.plugins.runtime.fixtures.Journal", """
+                        package dev.crystal.plugins.runtime.fixtures;
+                        public final class Journal { public String copy() { return "plugin's copy"; } }
+                        """).buildInto(elsewhere);
+        PluginJars.plugin("user", "1.0.0").withProcessor().library(library)
+                .source("acme.user.Exporter", """
+                        package acme.user;
+                        import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                        import java.util.List;
+                        public class Exporter implements ReportExporter {
+                            public String format() {
+                                return dev.crystal.plugins.runtime.fixtures.Journal.class.getClassLoader()
+                                        == ReportExporter.class.getClassLoader() ? "application" : "plugin";
+                            }
+                            public String export(List<String> rows) { return ""; }
+                        }
+                        """).buildInto(repo);
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo))
+                .cacheDirectory(cache).build()) {
+            plugins.installAll();
+            plugins.start();
+            assertEquals("application", plugins.roles(ReportExporter.class).iterator().next().format());
+        }
+    }
+}

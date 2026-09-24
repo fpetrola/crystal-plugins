@@ -46,6 +46,12 @@ final class PluginJarFinisher {
 
     static void finish(Path jar, Map<String, String> manifestAttributes, String metadataEntry, String metadata)
             throws IOException {
+        finish(jar, manifestAttributes, metadataEntry, metadata, Map.of());
+    }
+
+    /** @param libraries entry name ({@code lib/x.jar}) → file, added to the jar (replacing earlier ones) */
+    static void finish(Path jar, Map<String, String> manifestAttributes, String metadataEntry, String metadata,
+                       Map<String, Path> libraries) throws IOException {
         Path tmp = Files.createTempFile(jar.getParent(), jar.getFileName().toString(), ".tmp");
         try (JarFile in = new JarFile(jar.toFile())) {
             Manifest manifest = in.getManifest() != null ? new Manifest(in.getManifest()) : new Manifest();
@@ -66,7 +72,8 @@ final class PluginJarFinisher {
                 while (entries.hasMoreElements()) {
                     JarEntry entry = entries.nextElement();
                     String name = entry.getName();
-                    if (name.equals("META-INF/") || name.equals(MANIFEST) || name.equals(metadataEntry)) {
+                    if (name.equals("META-INF/") || name.equals(MANIFEST) || name.equals(metadataEntry)
+                            || (name.startsWith("lib/") && !libraries.isEmpty())) {
                         continue;
                     }
                     JarEntry copy = new JarEntry(name);
@@ -78,6 +85,12 @@ final class PluginJarFinisher {
                     out.closeEntry();
                 }
                 put(out, metadataEntry, time, metadata.getBytes(StandardCharsets.UTF_8));
+                if (!libraries.isEmpty()) {
+                    putDirectory(out, "lib/", time);
+                    for (Map.Entry<String, Path> library : new java.util.TreeMap<>(libraries).entrySet()) {
+                        put(out, library.getKey(), time, Files.readAllBytes(library.getValue()));
+                    }
+                }
             }
         } catch (IOException | RuntimeException e) {
             Files.deleteIfExists(tmp);

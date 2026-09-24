@@ -105,6 +105,32 @@ class PluginPackagerTest {
     }
 
     @Test
+    void aLibraryTheBuildMarksIsCarriedInLib() throws IOException {
+        Path jar = buildPlugin(Map.of("acme.tsv.Tab", """
+                package acme.tsv;
+                public class Tab implements acme.multi.Dialect {
+                    public String separator() { return lib.Strings.tab(); }
+                }
+                """), true);
+        ClasspathEntry carried = new ClasspathEntry(library.path(), "lib", "lib", "1.0", false, true);
+        PackagingResult result = PluginPackager.finish(new PluginBuildRequest(dir.resolve("classes"), jar, "tsv",
+                "2.0", "acme", "tsv", null, List.of(frameworkApi, inject, appApi, multiPlugin, carried)));
+
+        assertEquals(List.of("carries 1 library in lib/: lib-1.0"), result.warnings(),
+                "no \"neither a plugin nor provided\" warning: it travels inside");
+        try (JarFile file = new JarFile(jar.toFile())) {
+            assertTrue(file.getJarEntry("lib/lib-1.0.jar") != null);
+            assertTrue(file.getJarEntry("acme/tsv/Tab.class") != null, "the plugin's own classes stay");
+        }
+        PluginPackager.finish(new PluginBuildRequest(dir.resolve("classes"), jar, "tsv", "2.0", "acme", "tsv", null,
+                List.of(frameworkApi, inject, appApi, multiPlugin, carried)));
+        try (JarFile file = new JarFile(jar.toFile())) {
+            assertEquals(1, java.util.Collections.list(file.entries()).stream()
+                    .filter(e -> e.getName().equals("lib/lib-1.0.jar")).count(), "finishing twice does not duplicate");
+        }
+    }
+
+    @Test
     void needsIsPinnedWhenThePluginIsOnTheClasspath() {
         Path jar = buildPlugin(Map.of("acme.tsv.TsvExporter", """
                 package acme.tsv;
