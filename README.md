@@ -391,8 +391,9 @@ class GameBrowser {
   plugin de Maven, así que no corre el processor que el plugin agrega: no se escribe `roles.idx` y Guice
   muere pidiendo `Set<Rol>`. Se arregla declarando `framework-build-processor` como dependencia
   `provided` (en el pom padre alcanza), así cualquier compilador lo encuentra por `META-INF/services`.
-  Según lo que probó OOZX, declararlo en `annotationProcessorPaths` no sirve: pisa lo que agrega el plugin
-  y deja de generarse `roles.idx` también con Maven.
+  Con Maven no hace falta nada de esto: si el proyecto usa `annotationProcessorPaths`, el plugin agrega el
+  processor ahí, y si lista `annotationProcessors` por nombre de clase (javac corre solo esos), lo agrega a
+  esa lista.
 - **Qué enlaza por cada rol:** `Set<Rol>` (la vista viva), `Rol` (el preferido, fijo al construir) y
   `Provider<Rol>` (el preferido en cada `get()`).
 - **Rastrea referencias fijas también en el grafo de la app,** con un `ProvisionListener` que construye

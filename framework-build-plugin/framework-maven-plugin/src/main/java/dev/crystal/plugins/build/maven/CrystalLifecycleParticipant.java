@@ -1,5 +1,6 @@
 package dev.crystal.plugins.build.maven;
 
+import java.util.Arrays;
 import java.util.List;
 
 import org.apache.maven.AbstractMavenLifecycleParticipant;
@@ -19,7 +20,8 @@ import org.codehaus.plexus.util.xml.Xpp3Dom;
  *   <li>turns annotation processing on explicitly ({@code -proc:full}): since JDK 23 javac no longer runs
  *       processors found on the classpath implicitly. If the author already uses
  *       {@code annotationProcessorPaths}, the processor is appended there instead, because javac then ignores
- *       the classpath for discovery;</li>
+ *       the classpath for discovery. If the author lists {@code annotationProcessors} by class name, ours is
+ *       appended to that list too, because javac then runs only those;</li>
  *   <li>binds {@code package-plugin} to {@code package}, and {@code bundle-plugins} (a no-op unless configured)
  *       to {@code process-classes}, and {@code check-roles} (roles missing from the index of a single jar) to
  *       {@code verify}.</li>
@@ -32,6 +34,7 @@ public class CrystalLifecycleParticipant extends AbstractMavenLifecycleParticipa
 
     static final String PLUGIN_KEY = PackagePluginMojo.FRAMEWORK_GROUP + ":framework-maven-plugin";
     static final String PROCESSOR_ARTIFACT = "framework-build-processor";
+    static final String PROCESSOR_CLASS = "dev.crystal.plugins.build.processor.RoleProcessor";
     static final String COMPILER_KEY = "org.apache.maven.plugins:maven-compiler-plugin";
     static final String EXECUTION_ID = "crystal-package-plugin";
 
@@ -104,6 +107,12 @@ public class CrystalLifecycleParticipant extends AbstractMavenLifecycleParticipa
         Xpp3Dom configuration = existing == null ? new Xpp3Dom("configuration") : (Xpp3Dom) existing;
         if (configuration.getChild("proc") == null) {
             configuration.addChild(text("proc", "full"));
+        }
+        // An explicit list of processors is all javac runs, whatever it finds: ours has to be in it.
+        Xpp3Dom processors = configuration.getChild("annotationProcessors");
+        if (processors != null && Arrays.stream(processors.getChildren())
+                .noneMatch(p -> PROCESSOR_CLASS.equals(p.getValue()))) {
+            processors.addChild(text("annotationProcessor", PROCESSOR_CLASS));
         }
         return configuration;
     }
