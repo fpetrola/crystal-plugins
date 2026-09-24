@@ -470,8 +470,10 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   incluidos roles que todavía nadie implementa. "Refresh" vuelve a leer el estado y conserva lo seleccionado y lo abierto. Armar los árboles
   (`PluginTrees`) está separado de los widgets, así que se prueba sin pantalla.
 
-  Íconos: emojis de OpenMoji (https://openmoji.org, CC BY-SA 4.0) en SVG, cargados con JSVG (un jar sin
-  dependencias). Un plugin es una pieza de puzzle 🧩; un sub-plugin, un enchufe 🔌; uno que falló, ❌; uno
+  Íconos: emojis de OpenMoji (https://openmoji.org, CC BY-SA 4.0) en SVG, cargados con JSVG, que viaja adentro de
+  `framework-swing` con el paquete renombrado (`dev.crystal.plugins.swing.internal.jsvg`). Así no choca con
+  el jsvg de la app (darklaf trae otra versión, incompatible) y no se hereda como dependencia. Si igual no
+  se pueden dibujar, el panel abre sin íconos. Un plugin es una pieza de puzzle 🧩; un sub-plugin, un enchufe 🔌; uno que falló, ❌; uno
   que se va al próximo arranque, ⏳. Una insignia dice de dónde viene: 📦 del bundle, 📁 de una carpeta,
   🌐 del catálogo, 💻 de la app misma. Los roles son 🎭 (con 🧩 si los define un plugin, con ➕ en
   "defines"), las clases ⚙, las dependencias 🔗, y lo oculto o no instalado aparece desvaído.

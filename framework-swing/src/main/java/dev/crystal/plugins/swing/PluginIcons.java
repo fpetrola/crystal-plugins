@@ -6,6 +6,7 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.net.URL;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.swing.Icon;
@@ -18,7 +19,8 @@ import com.github.weisj.jsvg.view.ViewBox;
 /**
  * The panel's icons: OpenMoji emoji (CC BY-SA 4.0, https://openmoji.org), SVG files under
  * {@code dev/crystal/plugins/swing/icons/} rendered with JSVG. A plugin's icon carries a small badge telling
- * where it comes from.
+ * where it comes from. jsvg travels inside framework-swing, relocated, so it never clashes with an application's
+ * own; and if drawing fails anyway, the panel shows no icons rather than not opening.
  */
 public final class PluginIcons {
 
@@ -41,8 +43,9 @@ public final class PluginIcons {
     private static final String REQUIRES = "1F517";     // link
     private static final String PLUS = "2795";
 
-    private static final SVGLoader LOADER = new SVGLoader();
-    private static final Map<String, Icon> CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, Optional<Icon>> CACHE = new ConcurrentHashMap<>();
+    /** Set when the SVG renderer cannot run here: from then on the panel goes without icons. */
+    private static volatile boolean unavailable;
 
     /** Where a plugin comes from, shown as a badge on its icon. */
     public enum Origin {
@@ -122,8 +125,24 @@ public final class PluginIcons {
         };
     }
 
+    /** The icon, or null when it cannot be drawn: a panel without icons beats a panel that does not open. */
     private static Icon icon(String base, String badge, boolean faded) {
-        return CACHE.computeIfAbsent(base + "/" + badge + "/" + faded, k -> {
+        if (unavailable) {
+            return null;
+        }
+        try {
+            return CACHE.computeIfAbsent(base + "/" + badge + "/" + faded, k -> Optional.of(draw(base, badge, faded)))
+                    .orElse(null);
+        } catch (LinkageError | RuntimeException e) {
+            unavailable = true;
+            System.getLogger(PluginIcons.class.getName()).log(System.Logger.Level.WARNING,
+                    "Plugin panel icons disabled: " + e);
+            return null;
+        }
+    }
+
+    private static Icon draw(String base, String badge, boolean faded) {
+        {
             BufferedImage image = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g = image.createGraphics();
             try {
@@ -141,12 +160,12 @@ public final class PluginIcons {
                 g.dispose();
             }
             return new ImageIcon(image);
-        });
+        }
     }
 
     private static void paint(Graphics2D g, String name, int x, int y, int size) {
         URL url = PluginIcons.class.getResource("icons/" + name + ".svg");
-        SVGDocument document = url == null ? null : LOADER.load(url);
+        SVGDocument document = url == null ? null : new SVGLoader().load(url);
         if (document == null) {
             return; // a missing icon leaves the space empty rather than failing the panel
         }
