@@ -8,6 +8,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -71,5 +72,48 @@ class BundledDefaultsTest {
             assertEquals(Set.of("csv", "md"), formats(plugins), "and can be installed again from inside the app");
         }
         assertTrue(Files.isDirectory(cache.resolve("objects")));
+    }
+
+    @Test
+    void reinstallingABundledPluginTakesItFromTheAppUnlessTheCatalogHasANewerOne() throws IOException {
+        ClassLoader app = application("csv", "md");
+        // The catalog offers csv in the same version (built elsewhere: other bytes) and md in a newer one.
+        Path catalog = Files.createDirectories(dir.resolve("catalog"));
+        for (String[] plugin : new String[][] {{"csv", "1.0.0", "csv-remote"}, {"md", "2.0.0", "md-2"}}) {
+            PluginJars.plugin(plugin[0], plugin[1]).withProcessor().source("acme." + plugin[0] + ".Exporter", """
+                    package acme.%s;
+                    import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                    import java.util.List;
+                    public class Exporter implements ReportExporter {
+                        public String format() { return "%s"; }
+                        public String export(List<String> rows) { return ""; }
+                    }
+                    """.formatted(plugin[0], plugin[2])).buildInto(catalog);
+        }
+        List<String> downloads = new java.util.ArrayList<>();
+        dev.crystal.plugins.api.PluginSource directory = PluginSources.directory(catalog);
+        dev.crystal.plugins.api.PluginSource counting = new dev.crystal.plugins.api.PluginSource() {
+            @Override
+            public List<dev.crystal.plugins.api.PluginArtifact> artifacts() throws IOException {
+                return directory.artifacts();
+            }
+
+            @Override
+            public java.io.InputStream open(dev.crystal.plugins.api.PluginArtifact artifact) throws IOException {
+                downloads.add(artifact.id());
+                return directory.open(artifact);
+            }
+        };
+        try (PluginService plugins = PluginService.builder().source(counting).defaults(PluginSources.bundled(app))
+                .cacheDirectory(cache).build()) {
+            plugins.start();
+            plugins.uninstall("csv");
+            plugins.uninstall("md");
+            plugins.install("csv");
+            plugins.install("md");
+            assertEquals(Set.of("csv", "md-2"), formats(plugins), "the same csv as before; md updated");
+            assertEquals(List.of("md"), downloads, "only the newer version was downloaded");
+            assertEquals(List.of(), plugins.checkForUpdates().changes(), "the bundled csv is not an update away");
+        }
     }
 }
