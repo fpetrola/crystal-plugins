@@ -253,4 +253,19 @@ class PluginsPanelTest {
             });
         }
     }
+
+    @Test
+    void theDependencyTreeShowsWhatEachPluginRequiresAndWhoUsesIt() {
+        try (PluginService plugins = started()) {
+            List<String> tree = lines(PluginTrees.byDependency(plugins));
+            int tsv = tree.indexOf("tsv 1.0.0");
+            assertTrue(tsv >= 0, tree.toString());
+            assertEquals("  requires", tree.get(tsv + 1));
+            assertEquals("    multi 1.0.0", tree.get(tsv + 2));
+            int multi = tree.indexOf("multi 1.0.0");
+            assertEquals("  used by", tree.get(multi + 1));
+            assertEquals("    tsv 1.0.0", tree.get(multi + 2));
+            assertTrue(tree.contains("fast 1.0.0"), "a plugin without dependencies is listed too");
+        }
+    }
 }

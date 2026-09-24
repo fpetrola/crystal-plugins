@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (103 tests)
+mvn install                       # framework (104 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -474,6 +474,10 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   a seleccionar todos sus plugins, para instalar o sacar. Dentro de un grupo, un plugin sin nombre
   propio se muestra con su id sin el prefijo (`beeper`), y el id completo queda en los datos.
 
+  La pestaña "Dependencies" muestra, por plugin, lo que requiere (abriendo hacia abajo toda la cadena) y
+  quién lo usa ("used by"); una dependencia que no está instalada aparece en rojo como "missing". Queda en
+  una pestaña aparte porque en la primera sería demasiado; ahí sigue estando en el tooltip.
+
   La pestaña "Roles" es el árbol rol y quién lo define → implementaciones, marcando las ocultas, también
   colapsado. Suma los plugins del catálogo que implementarían cada rol, marcados "(not installed)",
   incluidos roles que todavía nadie implementa. "Refresh" vuelve a leer el estado y conserva lo seleccionado y lo abierto. Armar los árboles
@@ -567,7 +571,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
   separación entre catálogo e instalado. Tests: runtime 57, build core 15, processor 7, API 7, guice 5,
-  harness 6, swing 6. Además, `examples/` con dos apps, un sub-plugin, una app con su
+  harness 6, swing 7. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
   un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es

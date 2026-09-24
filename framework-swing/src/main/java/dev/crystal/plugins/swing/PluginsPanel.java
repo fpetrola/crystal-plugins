@@ -55,6 +55,7 @@ public class PluginsPanel extends JPanel {
     private final PluginService plugins;
     private final JTree installed = tree();
     private final JTree byRole = tree();
+    private final JTree byDependency = tree();
     /** What the catalog offers now, not installed; the available tree shows it. */
     private List<PluginTrees.Offer> offered = List.of();
     private final JTree available = tree();
@@ -86,6 +87,7 @@ public class PluginsPanel extends JPanel {
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Plugins", pluginsTab());
         tabs.addTab("Roles", new JScrollPane(byRole));
+        tabs.addTab("Dependencies", new JScrollPane(byDependency));
         add(tabs, BorderLayout.CENTER);
 
         JButton refresh = new JButton("Refresh", PluginIcons.check());
@@ -164,6 +166,8 @@ public class PluginsPanel extends JPanel {
                 PluginTrees.Node::pluginId);
         selectIn(available, availableSelected);
         show(byRole, PluginTrees.byRole(plugins, offered), roles, PluginTrees.Node::tooltip);
+        show(byDependency, PluginTrees.grouped(PluginTrees.byDependency(plugins), sharedPrefixes()),
+                expanded(byDependency, PluginTrees.Node::pluginId), PluginTrees.Node::pluginId);
         select(selected.toArray(String[]::new));
         remove.setEnabled(!selectedPlugins().isEmpty());
     }

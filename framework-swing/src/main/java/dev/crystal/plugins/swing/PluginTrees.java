@@ -217,6 +217,79 @@ public final class PluginTrees {
     }
 
     /**
+     * Plugin → what it requires (and what that requires, down the chain) and who uses it. A dependency that is
+     * not installed is shown as missing. Installed plugins only; what an available plugin requires is in its
+     * own node of the available tree.
+     */
+    public static DefaultMutableTreeNode byDependency(PluginService plugins) {
+        java.util.Map<String, PluginInfo> byId = new java.util.TreeMap<>();
+        plugins.plugins().forEach(p -> byId.put(p.id(), p));
+        java.util.Map<String, List<String>> usedBy = new java.util.TreeMap<>();
+        for (PluginInfo p : byId.values()) {
+            for (String dependency : p.dependencies()) {
+                usedBy.computeIfAbsent(dependencyId(dependency), k -> new java.util.ArrayList<>()).add(p.id());
+            }
+        }
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode(new Node("Dependencies", null, null));
+        for (PluginInfo p : byId.values()) {
+            DefaultMutableTreeNode plugin = dependencyNode(p.id(), null, byId);
+            if (!p.dependencies().isEmpty()) {
+                DefaultMutableTreeNode requires = section("requires", p.id());
+                addRequired(requires, p, byId, new java.util.HashSet<>(Set.of(p.id())));
+                plugin.add(requires);
+            }
+            List<String> users = usedBy.getOrDefault(p.id(), List.of());
+            if (!users.isEmpty()) {
+                DefaultMutableTreeNode used = section("used by", p.id());
+                users.forEach(user -> used.add(dependencyNode(user, null, byId)));
+                plugin.add(used);
+            }
+            root.add(plugin);
+        }
+        return root;
+    }
+
+    private static void addRequired(DefaultMutableTreeNode parent, PluginInfo plugin, java.util.Map<String, PluginInfo> byId,
+                                    Set<String> path) {
+        for (String dependency : plugin.dependencies()) {
+            String id = dependencyId(dependency);
+            DefaultMutableTreeNode node = dependencyNode(id, dependency, byId);
+            PluginInfo required = byId.get(id);
+            if (required != null && path.add(id)) { // the path guards against a cycle
+                addRequired(node, required, byId, path);
+                path.remove(id);
+            }
+            parent.add(node);
+        }
+    }
+
+    private static DefaultMutableTreeNode section(String text, String pluginId) {
+        return new DefaultMutableTreeNode(new Node(text, pluginId, null, PluginIcons.requires())
+                .label(text, "", null, null));
+    }
+
+    /** A plugin in the dependency tree; {@code declared} is how a dependent names it ({@code id@version}). */
+    private static DefaultMutableTreeNode dependencyNode(String id, String declared, java.util.Map<String, PluginInfo> byId) {
+        PluginInfo info = byId.get(id);
+        if (info == null) {
+            return new DefaultMutableTreeNode(new Node(id + " (missing)", id, "Required but not installed",
+                    PluginIcons.plugin(false, true, false, null))
+                    .label(null, id, declared, flag("missing", Flag.Kind.FAILED)));
+        }
+        return new DefaultMutableTreeNode(new Node(id + " " + info.version(), id, null,
+                PluginIcons.plugin(!info.dependencies().isEmpty(), info.status() == PluginInfo.Status.FAILED, false,
+                        null))
+                .label(null, info.name().orElse(id), info.name().isPresent() ? id + " · " + info.version()
+                        : info.version(), info.status() == PluginInfo.Status.FAILED ? flag("failed", Flag.Kind.FAILED)
+                        : null));
+    }
+
+    private static String dependencyId(String dependency) {
+        int at = dependency.indexOf('@');
+        return (at < 0 ? dependency : dependency.substring(0, at)).strip();
+    }
+
+    /**
      * Puts the top-level plugins of {@code root} whose ids share a prefix ({@code device-} in {@code device-beeper})
      * under a node for that prefix, when at least two do. Knows no prefix in particular: it only reads the ids.
      */
