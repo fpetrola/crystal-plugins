@@ -233,6 +233,33 @@ public final class PluginInstaller {
         return byId(offer()).values().stream().filter(a -> !installed.contains(a.id())).toList();
     }
 
+    private volatile Set<PluginArtifact> bundled;
+
+    /** Whether {@code artifact} is one of the application's default plugins (the very same jar). */
+    public boolean isBundled(PluginArtifact artifact) {
+        if (defaults == null) {
+            return false;
+        }
+        if (bundled == null) {
+            try {
+                bundled = Set.copyOf(defaults.artifacts());
+            } catch (IOException e) {
+                bundled = Set.of();
+            }
+        }
+        return bundled.contains(artifact);
+    }
+
+    /** The installed artifact of {@code pluginId}, if any. */
+    public Optional<PluginArtifact> installed(String pluginId) {
+        return cache.installed().orElse(List.of()).stream().filter(a -> a.id().equals(pluginId)).findFirst();
+    }
+
+    /** See {@link PluginSource#describe}; empty without a source. */
+    public java.util.Optional<dev.crystal.plugins.api.PluginDescription> describe(PluginArtifact artifact) {
+        return source == null ? java.util.Optional.empty() : source.describe(artifact);
+    }
+
     /** See {@link PluginSource#origin}; empty without a source. */
     public String origin(PluginArtifact artifact) {
         return source == null ? "" : source.origin(artifact);

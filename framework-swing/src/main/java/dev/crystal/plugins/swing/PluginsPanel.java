@@ -17,15 +17,12 @@ import java.util.Set;
 import java.util.function.Function;
 
 import javax.swing.BorderFactory;
-import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JLabel;
-import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTree;
-import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.ToolTipManager;
@@ -58,10 +55,11 @@ public class PluginsPanel extends JPanel {
     private final PluginService plugins;
     private final JTree installed = tree();
     private final JTree byRole = tree();
-    private final DefaultListModel<PluginArtifact> offered = new DefaultListModel<>();
-    private final JList<PluginArtifact> available = new JList<>(offered);
-    private final JButton install = new JButton("← Install");
-    private final JButton remove = new JButton("Remove →");
+    /** What the catalog offers now, not installed; the available tree shows it. */
+    private List<PluginTrees.Offer> offered = List.of();
+    private final JTree available = tree();
+    private final JButton install = new JButton("\u2190 Install", PluginIcons.install());
+    private final JButton remove = new JButton("Remove \u2192", PluginIcons.remove());
     private final JLabel status = new JLabel(" ");
 
     public PluginsPanel(PluginService plugins) {
@@ -70,20 +68,12 @@ public class PluginsPanel extends JPanel {
 
         installed.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         installed.addTreeSelectionListener(e -> remove.setEnabled(!selectedPlugins().isEmpty()));
-        available.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-        available.addListSelectionListener(e -> install.setEnabled(!available.getSelectedValuesList().isEmpty()));
-        available.setCellRenderer((list, value, index, selected, focus) -> {
-            String origin = plugins.origin(value);
-            JLabel label = new JLabel(value.id() + " " + value.version() + (origin.isBlank() ? "" : " — " + origin));
-            label.setOpaque(true);
-            label.setBackground(selected ? list.getSelectionBackground() : list.getBackground());
-            label.setForeground(selected ? list.getSelectionForeground() : list.getForeground());
-            return label;
-        });
+        available.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
+        available.addTreeSelectionListener(e -> install.setEnabled(!selectedIds(available).isEmpty()));
         install.setEnabled(false);
         remove.setEnabled(false);
         install.addActionListener(e -> {
-            List<String> ids = available.getSelectedValuesList().stream().map(PluginArtifact::id).toList();
+            List<String> ids = selectedIds(available);
             if (!ids.isEmpty()) {
                 background("Installing " + String.join(", ", ids) + "...", () -> install(ids), this::installed);
             }
@@ -98,7 +88,7 @@ public class PluginsPanel extends JPanel {
         tabs.addTab("Roles", new JScrollPane(byRole));
         add(tabs, BorderLayout.CENTER);
 
-        JButton refresh = new JButton("Refresh");
+        JButton refresh = new JButton("Refresh", PluginIcons.check());
         refresh.addActionListener(e -> refresh());
         JPanel south = new JPanel(new BorderLayout());
         south.add(status, BorderLayout.CENTER);
@@ -118,7 +108,7 @@ public class PluginsPanel extends JPanel {
 
     private JPanel pluginsTab() {
         JPanel left = titled("Installed", new JScrollPane(installed));
-        JButton check = new JButton("Check");
+        JButton check = new JButton("Check", PluginIcons.check());
         check.setToolTipText("Ask the catalog again");
         check.addActionListener(e -> recheck());
         JPanel checkRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
@@ -167,15 +157,15 @@ public class PluginsPanel extends JPanel {
         Set<String> expanded = expanded(installed, PluginTrees.Node::pluginId);
         show(installed, PluginTrees.byPlugin(plugins), expanded, PluginTrees.Node::pluginId);
         Set<String> roles = expanded(byRole, PluginTrees.Node::tooltip);
-        show(byRole, PluginTrees.byRole(plugins), roles, PluginTrees.Node::tooltip);
+        List<String> loaded = plugins.plugins().stream().map(PluginInfo::id).toList();
+        offered = offered.stream().filter(o -> !loaded.contains(o.artifact().id())).toList();
+        List<String> availableSelected = selectedIds(available);
+        show(available, PluginTrees.available(offered), expanded(available, PluginTrees.Node::pluginId),
+                PluginTrees.Node::pluginId);
+        selectIn(available, availableSelected);
+        show(byRole, PluginTrees.byRole(plugins, offered), roles, PluginTrees.Node::tooltip);
         select(selected.toArray(String[]::new));
         remove.setEnabled(!selectedPlugins().isEmpty());
-        List<String> loaded = plugins.plugins().stream().map(PluginInfo::id).toList();
-        for (int i = offered.size() - 1; i >= 0; i--) {
-            if (loaded.contains(offered.get(i).id())) {
-                offered.remove(i);
-            }
-        }
     }
 
     /**
@@ -227,9 +217,20 @@ public class PluginsPanel extends JPanel {
      * @return the offered plugins
      */
     public List<PluginArtifact> checkAvailable() {
-        List<PluginArtifact> found = plugins.available();
+        List<PluginTrees.Offer> found = offers();
         showAvailable(found);
-        return found;
+        return found.stream().map(PluginTrees.Offer::artifact).toList();
+    }
+
+    /** The catalog's offer, each with its origin and description (all may use the network). */
+    private List<PluginTrees.Offer> offers() {
+        return plugins.available().stream()
+                .map(a -> {
+                    String origin = plugins.origin(a);
+                    PluginIcons.Origin kind = plugins.isBundled(a) ? PluginIcons.Origin.BUNDLED
+                            : origin.startsWith("directory(") ? PluginIcons.Origin.LOCAL : PluginIcons.Origin.CATALOG;
+                    return new PluginTrees.Offer(a, origin, plugins.describe(a), kind);
+                }).toList();
     }
 
     /**
@@ -239,7 +240,7 @@ public class PluginsPanel extends JPanel {
      * @return what happened, also shown in the status line
      */
     public String installSelected() {
-        List<String> ids = available.getSelectedValuesList().stream().map(PluginArtifact::id).toList();
+        List<String> ids = selectedIds(available);
         if (ids.isEmpty()) {
             return "";
         }
@@ -250,20 +251,16 @@ public class PluginsPanel extends JPanel {
 
     /** Selects plugins {@code ids} in the available list (for callers and tests). */
     public void selectAvailable(String... ids) {
-        List<String> wanted = Arrays.asList(ids);
-        List<Integer> indices = new ArrayList<>();
-        for (int i = 0; i < offered.size(); i++) {
-            if (wanted.contains(offered.get(i).id())) {
-                indices.add(i);
-            }
-        }
-        available.setSelectedIndices(indices.stream().mapToInt(Integer::intValue).toArray());
+        selectIn(available, Arrays.asList(ids));
     }
 
     /** Selects plugins {@code ids} in the installed list, scrolling to the first (for callers and tests). */
     public void select(String... ids) {
-        List<String> wanted = Arrays.asList(ids);
-        DefaultMutableTreeNode root = (DefaultMutableTreeNode) installed.getModel().getRoot();
+        selectIn(installed, Arrays.asList(ids));
+    }
+
+    private static void selectIn(JTree tree, List<String> wanted) {
+        DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
         List<TreePath> paths = new ArrayList<>();
         for (int i = 0; i < root.getChildCount(); i++) {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
@@ -271,9 +268,9 @@ public class PluginsPanel extends JPanel {
                 paths.add(new TreePath(child.getPath()));
             }
         }
-        installed.setSelectionPaths(paths.toArray(TreePath[]::new));
+        tree.setSelectionPaths(paths.toArray(TreePath[]::new));
         if (!paths.isEmpty()) {
-            installed.scrollPathToVisible(paths.get(0));
+            tree.scrollPathToVisible(paths.get(0));
         }
     }
 
@@ -313,17 +310,17 @@ public class PluginsPanel extends JPanel {
     }
 
     private void recheck() {
-        background("Checking the catalog...", plugins::available, found -> {
+        background("Checking the catalog...", this::offers, found -> {
             showAvailable(found);
             status.setText(found.isEmpty() ? "The catalog offers nothing that is not installed"
                     : found.size() + " available");
         });
     }
 
-    private void showAvailable(List<PluginArtifact> found) {
-        offered.clear();
-        found.forEach(offered::addElement);
-        install.setEnabled(false);
+    private void showAvailable(List<PluginTrees.Offer> found) {
+        offered = List.copyOf(found);
+        refresh();
+        install.setEnabled(!selectedIds(available).isEmpty());
     }
 
     /** Runs {@code work} off the event dispatch thread and hands its result to {@code done} back on it. */
@@ -349,7 +346,12 @@ public class PluginsPanel extends JPanel {
     }
 
     private List<String> selectedPlugins() {
-        TreePath[] paths = installed.getSelectionPaths();
+        return selectedIds(installed);
+    }
+
+    /** The plugin ids of the top-level nodes selected in {@code tree} (or of the nodes under them). */
+    private static List<String> selectedIds(JTree tree) {
+        TreePath[] paths = tree.getSelectionPaths();
         Set<String> ids = new LinkedHashSet<>();
         if (paths != null) {
             for (TreePath path : paths) {
@@ -400,6 +402,20 @@ public class PluginsPanel extends JPanel {
                 return value instanceof PluginTrees.Node node ? node.tooltip() : null;
             }
         };
+        tree.setCellRenderer(new javax.swing.tree.DefaultTreeCellRenderer() {
+            @Override
+            public java.awt.Component getTreeCellRendererComponent(JTree t, Object value, boolean selected,
+                                                                   boolean expanded, boolean leaf, int row,
+                                                                   boolean focus) {
+                super.getTreeCellRendererComponent(t, value, selected, expanded, leaf, row, focus);
+                if (((DefaultMutableTreeNode) value).getUserObject() instanceof PluginTrees.Node node
+                        && node.icon() != null) {
+                    setIcon(node.icon());
+                }
+                return this;
+            }
+        });
+        tree.setRowHeight(20);
         tree.setRootVisible(false);
         tree.setShowsRootHandles(true);
         ToolTipManager.sharedInstance().registerComponent(tree);

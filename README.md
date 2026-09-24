@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (94 tests)
+mvn install                       # framework (95 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -448,7 +448,12 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   - "Installed": un árbol plugin → extensiones → roles, más los roles que define. Arranca colapsado, una
     línea por plugin con versión, estado y "en uso" o "se va al próximo arranque", y un tooltip con
     dependencias, quién lo retiene y el motivo de una falla;
-  - "Available": lo que ofrece el catálogo (la `PluginSource` del servicio) y no está instalado.
+  - "Available": lo que ofrece el catálogo (la `PluginSource` del servicio) y no está instalado. También
+    es un árbol colapsado: al abrir un plugin se ve qué roles implementaría y definiría y qué requiere,
+    sin instalarlo. Eso sale de `PluginService.describe(artifact)` → `PluginSource.describe`, que por
+    defecto no sabe nada. La carpeta y el bundle lo leen del `plugin-metadata.json` que ya trae cada
+    jar, sin red. Un catálogo remoto puede publicar ese archivo al lado del jar y parsearlo con
+    `PluginSources.description(in)`.
 
   Las dos admiten selección múltiple. "← Install" instala los seleccionados con sus dependencias; arrancan
   en el momento, pasan a la otra lista y quedan seleccionados ahí, así se ve qué llegó. "Remove →"
@@ -461,8 +466,15 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   dice cuál ganó. No forma parte de la identidad del artefacto.
 
   La pestaña "Roles" es el árbol rol y quién lo define → implementaciones, marcando las ocultas, también
-  colapsado. "Refresh" vuelve a leer el estado y conserva lo seleccionado y lo abierto. Armar los árboles
+  colapsado. Suma los plugins del catálogo que implementarían cada rol, marcados "(not installed)",
+  incluidos roles que todavía nadie implementa. "Refresh" vuelve a leer el estado y conserva lo seleccionado y lo abierto. Armar los árboles
   (`PluginTrees`) está separado de los widgets, así que se prueba sin pantalla.
+
+  Íconos: emojis de OpenMoji (https://openmoji.org, CC BY-SA 4.0) en SVG, cargados con JSVG (un jar sin
+  dependencias). Un plugin es una pieza de puzzle 🧩; un sub-plugin, un enchufe 🔌; uno que falló, ❌; uno
+  que se va al próximo arranque, ⏳. Una insignia dice de dónde viene: 📦 del bundle, 📁 de una carpeta,
+  🌐 del catálogo, 💻 de la app misma. Los roles son 🎭 (con 🧩 si los define un plugin, con ➕ en
+  "defines"), las clases ⚙, las dependencias 🔗, y lo oculto o no instalado aparece desvaído.
 
 ### Plugins por defecto dentro de la aplicación
 
@@ -516,7 +528,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
   separación entre catálogo e instalado. Tests: runtime 53, build core 13, processor 6, API 7, guice 5,
-  harness 6, swing 4. Además, `examples/` con dos apps, un sub-plugin, una app con su
+  harness 6, swing 5. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
   un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es

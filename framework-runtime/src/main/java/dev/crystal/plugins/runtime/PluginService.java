@@ -210,6 +210,25 @@ public final class PluginService implements AutoCloseable {
     }
 
     /**
+     * What {@code artifact} (from {@link #available()}) brings, as its catalog tells it: roles it implements and
+     * defines, plugins it requires. Empty when the catalog cannot tell without downloading it. Local catalogs
+     * (a directory, the bundled plugins) read it from the jar's metadata; nothing is downloaded.
+     */
+    public java.util.Optional<dev.crystal.plugins.api.PluginDescription> describe(PluginArtifact artifact) {
+        return installer.describe(artifact);
+    }
+
+    /** Whether {@code artifact} is one the application carries inside itself (its default plugins). */
+    public boolean isBundled(PluginArtifact artifact) {
+        return installer.isBundled(artifact);
+    }
+
+    /** Whether the installed plugin {@code pluginId} is the very jar the application carries inside itself. */
+    public boolean isBundled(String pluginId) {
+        return installer.installed(pluginId).map(installer::isBundled).orElse(false);
+    }
+
+    /**
      * Where an artifact from {@link #available()} comes from, as its source words it ("plugins folder", "GitHub
      * release"...); see {@link PluginSource#origin}.
      */

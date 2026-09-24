@@ -73,6 +73,16 @@ final class LayeredSource implements PluginSource {
     }
 
     @Override
+    public synchronized java.util.Optional<dev.crystal.plugins.api.PluginDescription> describe(PluginArtifact artifact) {
+        for (Map.Entry<PluginArtifact, PluginSource> e : origin.entrySet()) {
+            if (e.getKey().equals(artifact)) {
+                return e.getValue().describe(e.getKey());
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    @Override
     public synchronized String origin(PluginArtifact artifact) {
         for (Map.Entry<PluginArtifact, PluginSource> e : origin.entrySet()) {
             if (e.getKey().equals(artifact)) {

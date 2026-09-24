@@ -178,4 +178,21 @@ class PluginsPanelTest {
             assertTrue(plugins.plugins().isEmpty());
         }
     }
+
+    @Test
+    void theCatalogTellsWhatANotInstalledPluginBrings() throws Exception {
+        PluginJars.plugin("csv", "1.0.0").withProcessor().source("acme.csv.Exporter", exporter("csv", ""))
+                .buildInto(repo);
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).build()) {
+            plugins.start();
+            var csv = plugins.available().get(0);
+            assertEquals(List.of(ReportExporter.class.getName()),
+                    plugins.describe(csv).orElseThrow().implementsRoles(), "read from the jar, not installed");
+
+            List<PluginTrees.Offer> offers = List.of(new PluginTrees.Offer(csv, "", plugins.describe(csv)));
+            assertTrue(lines(PluginTrees.available(offers)).contains("  implements ReportExporter"));
+            assertTrue(lines(PluginTrees.byRole(plugins, offers)).contains("  csv (not installed)"),
+                    lines(PluginTrees.byRole(plugins, offers)).toString());
+        }
+    }
 }

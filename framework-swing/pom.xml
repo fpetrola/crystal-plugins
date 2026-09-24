@@ -18,6 +18,12 @@
     </description>
 
     <dependencies>
+        <!-- SVG icons (OpenMoji); one small jar without dependencies. -->
+        <dependency>
+            <groupId>com.github.weisj</groupId>
+            <artifactId>jsvg</artifactId>
+            <version>2.0.0</version>
+        </dependency>
         <dependency>
             <groupId>dev.crystal.plugins</groupId>
             <artifactId>framework-runtime</artifactId>

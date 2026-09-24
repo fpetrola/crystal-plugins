@@ -40,4 +40,14 @@ public interface PluginSource {
     default String origin(PluginArtifact artifact) {
         return toString();
     }
+
+    /**
+     * What an artifact returned by {@link #artifacts()} brings (roles, dependencies), for showing it before it is
+     * installed. Empty when the source cannot tell without downloading it, which is the default. A remote catalog
+     * can publish each plugin's {@code META-INF/plugin-metadata.json} next to the jar and read it here
+     * ({@code PluginSources.description} parses it).
+     */
+    default java.util.Optional<PluginDescription> describe(PluginArtifact artifact) {
+        return java.util.Optional.empty();
+    }
 }

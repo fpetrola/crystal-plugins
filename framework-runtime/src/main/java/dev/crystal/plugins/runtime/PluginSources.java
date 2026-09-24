@@ -100,9 +100,70 @@ public final class PluginSources {
         }
 
         @Override
+        public java.util.Optional<dev.crystal.plugins.api.PluginDescription> describe(PluginArtifact artifact) {
+            try {
+                return describeJar(open(artifact));
+            } catch (IOException e) {
+                return java.util.Optional.empty();
+            }
+        }
+
+        @Override
         public String toString() {
             return "bundled plugins";
         }
+    }
+
+    /** The {@code META-INF/plugin-metadata.json} every plugin jar built with the build plugin carries. */
+    public static final String METADATA = "META-INF/plugin-metadata.json";
+
+    /**
+     * Reads a plugin's {@code plugin-metadata.json} (see {@link #METADATA}) into what a catalog tells about it.
+     * For remote catalogs that publish that file next to each jar.
+     */
+    public static dev.crystal.plugins.api.PluginDescription description(InputStream json) throws IOException {
+        Object parsed;
+        try {
+            parsed = dev.crystal.plugins.runtime.internal.Json.parse(
+                    new String(json.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            throw new IOException("Malformed plugin metadata: " + e.getMessage(), e);
+        }
+        if (!(parsed instanceof Map<?, ?> root) || !Double.valueOf(1).equals(root.get("format"))) {
+            throw new IOException("Unknown plugin metadata format");
+        }
+        java.util.Set<String> implemented = new java.util.TreeSet<>();
+        for (Object extension : list(root.get("extensions"))) {
+            if (extension instanceof Map<?, ?> e) {
+                list(e.get("roles")).forEach(r -> implemented.add(String.valueOf(r)));
+            }
+        }
+        List<String> defined = list(root.get("definesRoles")).stream().map(String::valueOf).toList();
+        List<String> dependencies = new ArrayList<>();
+        for (Object dependency : list(root.get("dependencies"))) {
+            if (dependency instanceof Map<?, ?> d && d.get("id") != null && !dependencies.contains(d.get("id"))) {
+                dependencies.add(String.valueOf(d.get("id")));
+            }
+        }
+        return new dev.crystal.plugins.api.PluginDescription(List.copyOf(implemented), defined, dependencies);
+    }
+
+    private static List<?> list(Object value) {
+        return value instanceof List<?> l ? l : List.of();
+    }
+
+    /** The description inside a plugin jar's bytes; empty if it has no (readable) metadata. */
+    static java.util.Optional<dev.crystal.plugins.api.PluginDescription> describeJar(InputStream jar) {
+        try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(jar)) {
+            for (java.util.zip.ZipEntry entry; (entry = zip.getNextEntry()) != null; ) {
+                if (entry.getName().equals(METADATA)) {
+                    return java.util.Optional.of(description(zip));
+                }
+            }
+        } catch (IOException e) {
+            log.debug("No readable plugin metadata", e);
+        }
+        return java.util.Optional.empty();
     }
 
     /** SHA-256 of a file, lower-case hex. */
@@ -161,6 +222,15 @@ public final class PluginSources {
                 throw new IOException("Unknown artifact " + artifact.coordinates() + " in " + directory);
             }
             return Files.newInputStream(jar);
+        }
+
+        @Override
+        public java.util.Optional<dev.crystal.plugins.api.PluginDescription> describe(PluginArtifact artifact) {
+            try {
+                return describeJar(open(artifact));
+            } catch (IOException e) {
+                return java.util.Optional.empty();
+            }
         }
 
         private static Attributes mainAttributes(Path jar) throws IOException {
