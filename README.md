@@ -152,9 +152,11 @@ The emulator's jar carries its default plugins because of one line in its POM,
   jar (`lib/`), automatically. What the application already has is never loaded twice.
 - **Choosing between implementations.** `plugins.preferred(SnapshotFile.class)` gives one; `@Replaces("device-snapshots")`
   lets a plugin hide another one while it is installed. The rule can be replaced with a `ConflictResolver`.
-- **Safe removal.** A plugin still referenced by the application is not pulled away: it is removed on the
-  next start instead. `beforeUnload(...)` lets the application let go of anything it took from a plugin, such
-  as a look and feel, before its classes disappear.
+- **Safe removal.** `plugins.remove(id)` removes a plugin and what depends on it. If the application still holds
+  one of them, `whenHeld(...)` gives it the chance to let go first (save and close a window, reopen it
+  afterwards), and only if something still holds it is the removal deferred to the next start.
+  `beforeUnload(...)` lets the application drop anything else it took from a plugin, such as a look and
+  feel, before its classes disappear.
 - **No surprises on start.** Starting only loads what is installed, from a local content-addressed cache, and
   never needs the network. Installing and updating are explicit calls: `install(id)`, `uninstall(id)`,
   `checkForUpdates()`.

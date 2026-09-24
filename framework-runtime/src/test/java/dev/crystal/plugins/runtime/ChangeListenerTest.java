@@ -95,4 +95,49 @@ class ChangeListenerTest {
                     "after the unload, too late: which is why the notice comes before");
         }
     }
+
+    /** An application object holding an exporter as a fixed reference, like a window built with it. */
+    public static final class Window {
+        final dev.crystal.plugins.runtime.fixtures.ReportExporter exporter;
+
+        @jakarta.inject.Inject
+        public Window(dev.crystal.plugins.runtime.fixtures.ReportExporter exporter) {
+            this.exporter = exporter;
+        }
+    }
+
+    private Window window;
+
+    @Test
+    void removeAsksTheApplicationToLetGoBeforeDeferring() throws Exception {
+        PluginJars.plugin("csv", "1.0.0").withProcessor().source("acme.csv.Exporter", """
+                package acme.csv;
+                import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                import java.util.List;
+                public class Exporter implements ReportExporter {
+                    public String format() { return "csv"; }
+                    public String export(List<String> rows) { return ""; }
+                }
+                """).buildInto(repo);
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).build()) {
+            plugins.installAll();
+            plugins.start();
+
+            window = plugins.create(Window.class);
+            assertEquals(List.of("csv"), plugins.remove("csv").nextStart(),
+                    "held, and nobody offered to let go: deferred");
+
+            plugins.install("csv");
+            window = plugins.create(Window.class);
+            List<String> seen = new ArrayList<>();
+            plugins.whenHeld(going -> {
+                seen.add("release " + going);
+                window = null; // close the window
+                return () -> seen.add("reopen");
+            });
+            PluginService.Removal removal = plugins.remove("csv");
+            assertEquals(List.of("csv"), removal.now(), "let go: removed at once");
+            assertEquals(List.of("release [csv]", "reopen"), seen);
+        }
+    }
 }

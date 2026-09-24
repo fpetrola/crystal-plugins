@@ -197,11 +197,9 @@ public class PluginsPanel extends JPanel {
                 continue; // went with a plugin it depended on
             }
             try {
-                if (plugins.heldBy(id).isEmpty()) {
-                    plugins.uninstall(id).forEach(p -> removed.add(p.id()));
-                } else {
-                    later.addAll(plugins.uninstallOnNextStart(id));
-                }
+                PluginService.Removal removal = plugins.remove(id);
+                removed.addAll(removal.now());
+                later.addAll(removal.nextStart());
             } catch (RuntimeException e) {
                 errors.add("Cannot remove " + id + ": " + e.getMessage());
             }

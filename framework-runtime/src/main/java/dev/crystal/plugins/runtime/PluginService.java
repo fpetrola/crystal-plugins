@@ -75,6 +75,8 @@ public final class PluginService implements AutoCloseable {
     private boolean started;
     private boolean closed;
     private final List<Runnable> listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final List<java.util.function.Function<Set<String>, Runnable>> holdListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
     private final List<java.util.function.Consumer<String>> unloadListeners =
             new java.util.concurrent.CopyOnWriteArrayList<>();
 
@@ -176,6 +178,79 @@ public final class PluginService implements AutoCloseable {
     public AutoCloseable beforeUnload(java.util.function.Consumer<String> listener) {
         unloadListeners.add(Objects.requireNonNull(listener));
         return () -> unloadListeners.remove(listener);
+    }
+
+    /** What {@link #remove} did: plugins removed now, and plugins that go on the next start. */
+    public record Removal(List<String> now, List<String> nextStart) {
+        public Removal {
+            now = List.copyOf(now);
+            nextStart = List.copyOf(nextStart);
+        }
+    }
+
+    /**
+     * Lets the application give up what it holds of plugins about to be removed, so {@link #remove} can remove
+     * them now instead of on the next start. {@code release} is called synchronously, on the thread calling
+     * {@code remove}, with the plugins going (the one asked for and its dependents) when something still holds
+     * them. It lets go of its references (closes windows built with {@link #building}, drops cached instances) and
+     * returns what to do once the removal is done (reopen what it closed, now without them), or null. That runs on
+     * the same thread, after the removal, whether it happened now or was deferred.
+     *
+     * @return closing it stops the notifications
+     */
+    public AutoCloseable whenHeld(java.util.function.Function<Set<String>, Runnable> release) {
+        holdListeners.add(Objects.requireNonNull(release));
+        return () -> holdListeners.remove(release);
+    }
+
+    /**
+     * Removes {@code pluginId} and what depends on it: now if nothing holds them, otherwise after asking the
+     * application to let go ({@link #whenHeld}), and if something still holds them, on the next start. The one
+     * call a plugin window needs.
+     *
+     * @throws IllegalArgumentException if {@code pluginId} is not loaded
+     */
+    public synchronized Removal remove(String pluginId) {
+        checkOpen();
+        List<String> leavesFirst = withDependents(pluginId);
+        Set<String> going = Set.copyOf(leavesFirst);
+        List<Runnable> afterwards = new ArrayList<>();
+        if (!registry.holdersOutside(going).isEmpty() && !holdListeners.isEmpty()) {
+            for (java.util.function.Function<Set<String>, Runnable> release : holdListeners) {
+                try {
+                    Runnable after = release.apply(new java.util.TreeSet<>(going));
+                    if (after != null) {
+                        afterwards.add(after);
+                    }
+                } catch (RuntimeException e) {
+                    log.error("Plugin hold listener failed for {}", going, e);
+                }
+            }
+            // Application holders are weak references: what the application let go is gone after a collection.
+            for (int i = 0; i < 5 && !registry.holdersOutside(going).isEmpty(); i++) {
+                System.gc();
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        Removal removal;
+        if (registry.holdersOutside(going).isEmpty()) {
+            removal = new Removal(uninstall(pluginId).stream().map(PluginInfo::id).toList(), List.of());
+        } else {
+            removal = new Removal(List.of(), uninstallOnNextStart(pluginId));
+        }
+        for (Runnable after : afterwards) {
+            try {
+                after.run();
+            } catch (RuntimeException e) {
+                log.error("Plugin hold listener's follow-up failed", e);
+            }
+        }
+        return removal;
     }
 
     private void unloading(List<String> leavesFirst) {
