@@ -244,7 +244,18 @@ public final class PluginTrees {
         for (DefaultMutableTreeNode child : children) {
             String prefix = child.getUserObject() instanceof Node n && n.pluginId() != null
                     && n.pluginId().indexOf('-') > 0 ? n.pluginId().substring(0, n.pluginId().indexOf('-')) : null;
-            (prefix != null && groups.containsKey(prefix) ? groups.get(prefix) : result).add(child);
+            if (prefix != null && groups.containsKey(prefix)) {
+                // The group already says the prefix: a plugin without a name of its own shows the rest of its id.
+                if (child.getUserObject() instanceof Node n && n.label() != null
+                        && n.label().name().equals(n.pluginId())) {
+                    child.setUserObject(n.label(n.label().prefix(), n.pluginId().substring(prefix.length() + 1),
+                            n.pluginId() + (n.label().detail() == null ? "" : " · " + n.label().detail()),
+                            n.label().flag()));
+                }
+                groups.get(prefix).add(child);
+            } else {
+                result.add(child);
+            }
         }
         return result;
     }

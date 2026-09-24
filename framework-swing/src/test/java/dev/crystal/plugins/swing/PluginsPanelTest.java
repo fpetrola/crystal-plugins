@@ -228,6 +228,15 @@ class PluginsPanelTest {
             }
             assertEquals("Beeper", beeper.label().name());
             assertEquals("device-beeper · 1.0.0", beeper.label().detail());
+            PluginTrees.Node tape = null;
+            for (int i = 0; i < devices.getChildCount(); i++) {
+                PluginTrees.Node n = (PluginTrees.Node) ((DefaultMutableTreeNode) devices.getChildAt(i)).getUserObject();
+                if (n.pluginId().equals("device-tape")) {
+                    tape = n;
+                }
+            }
+            assertEquals("tape", tape.label().name(), "without a name, the id minus the group's prefix");
+            assertEquals("device-tape · 1.0.0", tape.label().detail());
 
             onEdt(() -> {
                 PluginsPanel panel = new PluginsPanel(plugins);

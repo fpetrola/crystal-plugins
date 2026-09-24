@@ -470,7 +470,8 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   `crystal.pluginName`. El id queda en los datos chicos, y sin nombre se muestra el id como siempre
   (`PluginInfo.name()`, `PluginDescription.name()`). Los plugins cuyo id comparte prefijo (`device-`,
   `tool-`) van agrupados bajo un nodo por prefijo, cuando son al menos dos. Seleccionar el grupo equivale
-  a seleccionar todos sus plugins, para instalar o sacar.
+  a seleccionar todos sus plugins, para instalar o sacar. Dentro de un grupo, un plugin sin nombre
+  propio se muestra con su id sin el prefijo (`beeper`), y el id completo queda en los datos.
 
   La pestaña "Roles" es el árbol rol y quién lo define → implementaciones, marcando las ocultas, también
   colapsado. Suma los plugins del catálogo que implementarían cada rol, marcados "(not installed)",
