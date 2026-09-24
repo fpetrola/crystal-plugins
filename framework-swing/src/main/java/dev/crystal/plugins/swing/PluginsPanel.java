@@ -102,8 +102,14 @@ public class PluginsPanel extends JPanel {
         plugins.onChange(() -> SwingUtilities.invokeLater(this::refresh));
         // The catalog is asked when the panel is first shown, not when it is built.
         addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing() && offered.isEmpty()) {
-                recheck();
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
+                // A tree caches the width of each row when its model is set. Built before the window shows (in
+                // this constructor), the rows are measured without the look and feel's fonts, and HTML text comes
+                // out clipped to nothing until something rebuilds them. So rebuild once really on screen.
+                SwingUtilities.invokeLater(this::refresh);
+                if (offered.isEmpty()) {
+                    recheck();
+                }
             }
         });
     }
