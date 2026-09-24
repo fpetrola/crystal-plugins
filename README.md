@@ -24,29 +24,44 @@ after a plugin goes away. Crystal keeps that out of everybody's code:
 - **The user** installs, updates and removes plugins while the application runs, from a catalog you
   control. The application can also ship its default plugins inside its own jar.
 
-## A complete example
+## How it looks in a real application
 
-**1. The application declares a role**, an ordinary interface in its API jar:
+The examples below come from [OOZX](https://github.com/fpetrola/oozx), a ZX Spectrum emulator built on Crystal.
+Its machines, chips, file formats, windows, toolbar buttons and even its look and feels are plugins, some
+sixty of them. The emulator's own code never names one.
+
+**1. The application says what can be plugged in**, with ordinary interfaces:
 
 ```java
 @RoleInterface
-public interface ReportExporter {
-    String format();
-    String export(List<String> header, List<List<String>> rows);
+public interface DeskEquipment {          // a window on the emulator's desktop
+    String name();
+    JInternalFrame open();
+}
+
+@RoleInterface
+public interface SnapshotFile {           // a snapshot format
+    boolean reads(File file);
+    SpectrumState load(File file);
 }
 ```
 
-**2. A plugin implements it.** This is the whole plugin:
+**2. A plugin is a class that implements one.** Here is a complete plugin, the README viewer, with no
+annotation and no registration:
 
 ```java
-public class CsvExporter implements ReportExporter {
-    public String format() { return "csv"; }
-    public String export(List<String> header, List<List<String>> rows) { ... }
+public class ReadmeEquipment implements DeskEquipment {
+    public String name() { return "README"; }
+    public JInternalFrame open() {
+        JInternalFrame frame = new JInternalFrame("README - OOZX", true, true, true, true);
+        frame.add(new JScrollPane(new JEditorPane("text/html", readmeAsHtml())));
+        return frame;
+    }
 }
 ```
 
-Its `pom.xml` depends on the API jar (`provided`) and adds the build plugin, which can also be declared once
-in a parent POM:
+Its `pom.xml` names the plugin, `<name>README</name>`, and that is all. The build plugin is declared once,
+in the parent POM of all the plugins:
 
 ```xml
 <plugin>
@@ -57,57 +72,85 @@ in a parent POM:
 </plugin>
 ```
 
-`mvn package` produces a regular jar that is also a plugin. There is nothing else to configure.
-
-**3. The application uses the role** with no reference to plugins at all:
+**3. The application asks for what it needs, and gets whatever is installed.** This is how the emulator
+builds its menus and opens files:
 
 ```java
-public class ReportScreen {
-    @Inject Set<ReportExporter> exporters;          // every exporter installed now, updated live
+@Inject
+WhatIsPluggedIn(Set<DeskEquipment> windows, Set<SnapshotFile> formats, Set<Equipment> equipment, ...)
 
-    void export(Report report, String format) {
-        exporters.stream().filter(e -> e.format().equals(format)).findFirst()
-                 .ifPresent(e -> save(e.export(report.header(), report.rows())));
+for (DeskEquipment window : windows) {
+    JMenuItem item = new JMenuItem(window.name());
+    item.addActionListener(e -> desktop.add(window.open()));
+    menu.add(item);
+}
+
+SnapshotFile format = formats.stream().filter(f -> f.reads(file)).findFirst().orElse(null);
+```
+
+The sets are live: install a plugin from the plugin window and the menu has one more entry, remove it and
+the entry is gone. Nothing in this code knows that a plugin exists.
+
+**4. A plugin can say what it handles, so the application can find it before it is installed.** A snapshot
+format declares its file extension:
+
+```java
+@Answers("sp")
+public class SnapshotSP implements SnapshotFile { ... }
+```
+
+When the user drops a file nothing installed can open, the emulator asks the catalog which plugin to
+install, without downloading any of them:
+
+```java
+if (plugins.answering(role, "sp").isEmpty()) {
+    offer(plugins.availableAnswering(role, "sp"));
+}
+```
+
+**5. Plugins depend on plugins without the application noticing.** The 128K Spectrum is a plugin that uses
+the AY sound chip, which is another plugin. The build sees the dependency in the bytecode and records it.
+Installing the 128K brings the chip, and removing the chip takes the 128K with it. The emulator only asks
+for machines:
+
+```java
+@Answers({"SPECTRUM128K", "SPECTRUMPLUS2"})
+public class Spectrum128Devices extends AbstractModule implements Extension {
+    protected void configure() {
+        Multibinder.newSetBinder(binder(), Spectrum.class).addBinding().to(Spec128.class);
     }
 }
 ```
 
-**4. Something starts the plugins, once:**
+**6. The setup is done once**, in one place:
 
 ```java
-try (PluginService plugins = PluginService.builder()
-        .source(myCatalog)                        // where plugins come from: a folder, a server, GitHub...
-        .defaults(PluginSources.bundled())        // plugins shipped inside the application jar
-        .cacheDirectory(appData.resolve("plugins"))
-        .build()) {
-    plugins.start();                              // loads what is installed, from the local cache
-    ReportScreen screen = plugins.create(ReportScreen.class);
-    ...
-}
+PluginService plugins = PluginService.builder()
+        .source(new WhereAPluginComesFrom())             // a local folder plus a release board online
+        .defaults(PluginSources.bundled())               // the plugins shipped inside the emulator's jar
+        .cacheDirectory(home.resolve("plugin-cache"))
+        .build();
+plugins.start();
+
+Injector injector = Guice.createInjector(PluginsModule.of(plugins));   // every role, injectable
 ```
 
-Install a PDF exporter while the application runs, and `screen.exporters` has one more element; remove it,
-and it has one less. Neither the screen nor the CSV plugin changes.
-
-If the application already has its own Guice injector, `PluginsModule.of(plugins)` (in `framework-guice`)
-makes every role injectable there too, discovered automatically:
-
-```java
-Injector injector = Guice.createInjector(new AppModule(), PluginsModule.of(plugins));
-```
+The emulator's jar carries its default plugins because of one line in its POM,
+`<crystal.bundleGroupId>com.fpetrola</crystal.bundleGroupId>`, and its plugin manager window is
+`new PluginsPanel(plugins)`.
 
 ## What the framework takes care of
 
 - **Isolation.** Each plugin gets its own classloader and injector, created and dropped together. Two
   plugins can use different versions of the same library.
-- **Dependencies between plugins.** If `csv-semicolon` uses classes from `csv-exporter`, the build notices it
-  in the bytecode and records `csv-exporter@1.0.0`. Installing one brings the other, and removing the base
+- **Dependencies between plugins.** If `device-spectrum128` uses classes from `device-ay`, the build notices it
+  in the bytecode and records `device-ay@<version>`. Installing one brings the other, and removing the base
   removes what depends on it, dependents first.
 - **Plugins that extend plugins.** A plugin can declare its own `@RoleInterface`, and sub-plugins implement it
   exactly like the application's roles.
 - **Third-party libraries.** A plugin that needs a library the application does not have carries it inside its
   jar (`lib/`), automatically. What the application already has is never loaded twice.
-- **Choosing between implementations.** `plugins.preferred(ReportExporter.class)` gives one; `@Replaces("csv")`
+- **Choosing between implementations.** `plugins.preferred(SnapshotFile.class)` gives one; `@Replaces("device-snapshots")`
   lets a plugin hide another one while it is installed. The rule can be replaced with a `ConflictResolver`.
 - **Safe removal.** A plugin still referenced by the application is not pulled away: it is removed on the
   next start instead. `beforeUnload(...)` lets the application let go of anything it took from a plugin, such
@@ -116,7 +159,7 @@ Injector injector = Guice.createInjector(new AppModule(), PluginsModule.of(plugi
   never needs the network. Installing and updating are explicit calls: `install(id)`, `uninstall(id)`,
   `checkForUpdates()`.
 - **Your application's own implementations count too.** Implementations shipped in the application itself
-  appear alongside the plugins', so "every exporter" means every exporter.
+  appear alongside the plugins', so "every snapshot format" means every one.
 - **Answering questions without loading anything.** A plugin can declare the keys it handles, such as
   `@Answers({"tap", "tzx"})` for file extensions. `plugins.availableAnswering(role, "tzx")` then tells which
   plugin in the catalog to install, without downloading it.
