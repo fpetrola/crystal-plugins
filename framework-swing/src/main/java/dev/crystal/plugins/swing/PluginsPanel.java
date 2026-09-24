@@ -155,12 +155,12 @@ public class PluginsPanel extends JPanel {
     public void refresh() {
         List<String> selected = selectedPlugins();
         Set<String> expanded = expanded(installed, PluginTrees.Node::pluginId);
-        show(installed, PluginTrees.byPlugin(plugins), expanded, PluginTrees.Node::pluginId);
+        show(installed, PluginTrees.grouped(PluginTrees.byPlugin(plugins)), expanded, PluginTrees.Node::pluginId);
         Set<String> roles = expanded(byRole, PluginTrees.Node::tooltip);
         List<String> loaded = plugins.plugins().stream().map(PluginInfo::id).toList();
         offered = offered.stream().filter(o -> !loaded.contains(o.artifact().id())).toList();
         List<String> availableSelected = selectedIds(available);
-        show(available, PluginTrees.available(offered), expanded(available, PluginTrees.Node::pluginId),
+        show(available, PluginTrees.grouped(PluginTrees.available(offered)), expanded(available, PluginTrees.Node::pluginId),
                 PluginTrees.Node::pluginId);
         selectIn(available, availableSelected);
         show(byRole, PluginTrees.byRole(plugins, offered), roles, PluginTrees.Node::tooltip);
@@ -260,10 +260,8 @@ public class PluginsPanel extends JPanel {
     }
 
     private static void selectIn(JTree tree, List<String> wanted) {
-        DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
         List<TreePath> paths = new ArrayList<>();
-        for (int i = 0; i < root.getChildCount(); i++) {
-            DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
+        for (DefaultMutableTreeNode child : top((DefaultMutableTreeNode) tree.getModel().getRoot())) {
             if (child.getUserObject() instanceof PluginTrees.Node node && wanted.contains(node.pluginId())) {
                 paths.add(new TreePath(child.getPath()));
             }
@@ -355,10 +353,23 @@ public class PluginsPanel extends JPanel {
         Set<String> ids = new LinkedHashSet<>();
         if (paths != null) {
             for (TreePath path : paths) {
-                if (path.getPathCount() >= 2
-                        && ((DefaultMutableTreeNode) path.getPathComponent(1)).getUserObject()
-                        instanceof PluginTrees.Node node && node.pluginId() != null) {
-                    ids.add(node.pluginId());
+                DefaultMutableTreeNode last = (DefaultMutableTreeNode) path.getLastPathComponent();
+                if (last.getUserObject() instanceof PluginTrees.Node n && n.group()) {
+                    // A group stands for all its plugins.
+                    for (int i = 0; i < last.getChildCount(); i++) {
+                        if (((DefaultMutableTreeNode) last.getChildAt(i)).getUserObject()
+                                instanceof PluginTrees.Node child && child.pluginId() != null) {
+                            ids.add(child.pluginId());
+                        }
+                    }
+                    continue;
+                }
+                for (int i = 1; i < path.getPathCount(); i++) {
+                    if (((DefaultMutableTreeNode) path.getPathComponent(i)).getUserObject()
+                            instanceof PluginTrees.Node node && node.pluginId() != null) {
+                        ids.add(node.pluginId());
+                        break;
+                    }
                 }
             }
         }
@@ -371,11 +382,33 @@ public class PluginsPanel extends JPanel {
         DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
         for (int i = 0; i < root.getChildCount(); i++) {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
+            if (child.getUserObject() instanceof PluginTrees.Node n && n.group()
+                    && !tree.isExpanded(new TreePath(child.getPath()))) {
+                expanded.add("collapsed group:" + n.text()); // groups start open: remember the closed ones
+            }
+        }
+        for (DefaultMutableTreeNode child : top(root)) {
             if (tree.isExpanded(new TreePath(child.getPath())) && child.getUserObject() instanceof PluginTrees.Node n) {
                 expanded.add(key.apply(n));
             }
         }
         return expanded;
+    }
+
+    /** The top-level items of a tree: the root's children, and the children of its groups instead of the groups. */
+    private static List<DefaultMutableTreeNode> top(DefaultMutableTreeNode root) {
+        List<DefaultMutableTreeNode> result = new ArrayList<>();
+        for (int i = 0; i < root.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
+            if (child.getUserObject() instanceof PluginTrees.Node n && n.group()) {
+                for (int j = 0; j < child.getChildCount(); j++) {
+                    result.add((DefaultMutableTreeNode) child.getChildAt(j));
+                }
+            } else {
+                result.add(child);
+            }
+        }
+        return result;
     }
 
     /** Shows {@code root} with its top-level nodes collapsed, except those that were expanded before. */
@@ -384,6 +417,12 @@ public class PluginsPanel extends JPanel {
         tree.setModel(new DefaultTreeModel(root));
         for (int i = 0; i < root.getChildCount(); i++) {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
+            if (child.getUserObject() instanceof PluginTrees.Node n && n.group()
+                    && !expanded.contains("collapsed group:" + n.text())) {
+                tree.expandPath(new TreePath(child.getPath()));
+            }
+        }
+        for (DefaultMutableTreeNode child : top(root)) {
             if (child.getUserObject() instanceof PluginTrees.Node n && expanded.contains(key.apply(n))) {
                 tree.expandPath(new TreePath(child.getPath()));
             }

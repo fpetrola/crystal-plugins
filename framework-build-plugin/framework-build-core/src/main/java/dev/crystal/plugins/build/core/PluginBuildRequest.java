@@ -15,9 +15,16 @@ import java.util.Objects;
  * @param artifactId       project coordinates
  * @param description      free text, may be null
  * @param classpath        compile classpath, in resolution order
+ * @param name             name for people ({@code Plugin-Name}), may be null: tools then show the id
  */
 public record PluginBuildRequest(Path classesDirectory, Path jar, String pluginId, String version, String groupId,
-                                 String artifactId, String description, List<ClasspathEntry> classpath) {
+                                 String artifactId, String description, List<ClasspathEntry> classpath,
+                                 String name) {
+
+    public PluginBuildRequest(Path classesDirectory, Path jar, String pluginId, String version, String groupId,
+                              String artifactId, String description, List<ClasspathEntry> classpath) {
+        this(classesDirectory, jar, pluginId, version, groupId, artifactId, description, classpath, null);
+    }
 
     public PluginBuildRequest {
         Objects.requireNonNull(classesDirectory, "classesDirectory");

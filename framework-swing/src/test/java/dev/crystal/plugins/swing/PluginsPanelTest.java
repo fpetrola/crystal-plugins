@@ -195,4 +195,47 @@ class PluginsPanelTest {
                     lines(PluginTrees.byRole(plugins, offers)).toString());
         }
     }
+
+    @Test
+    void pluginsShowTheirNameAndGroupByIdPrefix() throws Exception {
+        for (String id : List.of("device-beeper", "device-tape", "tool-csv")) {
+            PluginJars.plugin(id, "1.0.0").named(id.equals("device-beeper") ? "Beeper" : null).withProcessor()
+                    .source("acme." + id.replace('-', '_') + ".Exporter", exporter(id.replace('-', '_'), ""))
+                    .buildInto(repo);
+        }
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).build()) {
+            plugins.installAll();
+            plugins.start();
+            assertEquals(java.util.Optional.of("Beeper"), plugins.plugins().stream()
+                    .filter(p -> p.id().equals("device-beeper")).findFirst().orElseThrow().name());
+
+            DefaultMutableTreeNode grouped = PluginTrees.grouped(PluginTrees.byPlugin(plugins));
+            List<String> top = new ArrayList<>();
+            for (int i = 0; i < grouped.getChildCount(); i++) {
+                DefaultMutableTreeNode child = (DefaultMutableTreeNode) grouped.getChildAt(i);
+                top.add(child.getUserObject() + "/" + child.getChildCount());
+            }
+            assertEquals("device", top.get(0).split("/")[0], top.toString());
+            assertEquals(2, ((DefaultMutableTreeNode) grouped.getChildAt(0)).getChildCount(),
+                    "the two device- plugins under one node; tool-csv alone stays on top");
+            DefaultMutableTreeNode devices = (DefaultMutableTreeNode) grouped.getChildAt(0);
+            PluginTrees.Node beeper = null;
+            for (int i = 0; i < devices.getChildCount(); i++) {
+                PluginTrees.Node n = (PluginTrees.Node) ((DefaultMutableTreeNode) devices.getChildAt(i)).getUserObject();
+                if (n.pluginId().equals("device-beeper")) {
+                    beeper = n;
+                }
+            }
+            assertEquals("Beeper", beeper.label().name());
+            assertEquals("device-beeper · 1.0.0", beeper.label().detail());
+
+            onEdt(() -> {
+                PluginsPanel panel = new PluginsPanel(plugins);
+                panel.installedTree().setSelectionRow(0); // the group
+                String removed = panel.removeSelected();
+                assertTrue(removed.contains("device-beeper") && removed.contains("device-tape")
+                        && !removed.contains("tool-csv"), "a group stands for all its plugins: " + removed);
+            });
+        }
+    }
 }

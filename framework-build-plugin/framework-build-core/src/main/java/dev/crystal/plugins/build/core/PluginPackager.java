@@ -72,6 +72,9 @@ public final class PluginPackager {
             manifest.put("Plugin-Version", version);
             manifest.put("Plugin-Class", GENERIC_PLUGIN_CLASS);
             manifest.put("Plugin-Provider", request.groupId());
+            if (request.name() != null && !request.name().isBlank()) {
+                manifest.put("Plugin-Name", request.name().strip().replaceAll("\\s+", " "));
+            }
             if (request.description() != null && !request.description().isBlank()) {
                 manifest.put("Plugin-Description", request.description().strip().replaceAll("\\s+", " "));
             }

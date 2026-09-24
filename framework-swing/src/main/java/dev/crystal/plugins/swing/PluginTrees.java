@@ -21,19 +21,19 @@ import dev.crystal.plugins.runtime.RoleInfo;
 public final class PluginTrees {
 
     /** What a tree node shows, and the plugin it is about (null for nodes about no single plugin). */
-    public record Node(String text, String pluginId, String tooltip, Icon icon, Label label) {
+    public record Node(String text, String pluginId, String tooltip, Icon icon, Label label, boolean group) {
 
         public Node(String text, String pluginId, String tooltip) {
-            this(text, pluginId, tooltip, null, null);
+            this(text, pluginId, tooltip, null, null, false);
         }
 
         public Node(String text, String pluginId, String tooltip, Icon icon) {
-            this(text, pluginId, tooltip, icon, null);
+            this(text, pluginId, tooltip, icon, null, false);
         }
 
         /** This node with how the panel shows it: name first and bold, the rest smaller. */
         public Node label(String prefix, String name, String detail, Flag flag) {
-            return new Node(text, pluginId, tooltip, icon, new Label(prefix, name, detail, flag));
+            return new Node(text, pluginId, tooltip, icon, new Label(prefix, name, detail, flag), group);
         }
 
         @Override
@@ -89,7 +89,8 @@ public final class PluginTrees {
                     tooltip.isEmpty() ? null : tooltip.toString().strip(),
                     PluginIcons.plugin(!info.dependencies().isEmpty(), info.status() == PluginInfo.Status.FAILED,
                             pending.contains(info.id()), origin))
-                    .label(null, info.id(), info.version(),
+                    .label(null, info.name().orElse(info.id()),
+                            info.name().isPresent() ? info.id() + " · " + info.version() : info.version(),
                             info.status() == PluginInfo.Status.FAILED ? flag("failed", Flag.Kind.FAILED)
                                     : info.status() != PluginInfo.Status.STARTED
                                     ? flag(info.status().name().toLowerCase(), Flag.Kind.PENDING)
@@ -134,7 +135,9 @@ public final class PluginTrees {
             boolean sub = offer.description().map(d -> !d.dependencies().isEmpty()).orElse(false);
             DefaultMutableTreeNode plugin = new DefaultMutableTreeNode(new Node(text, a.id(), offer.origin(),
                     PluginIcons.plugin(sub, false, false, offer.kind()))
-                    .label(null, a.id(), a.version() + (offer.origin().isBlank() ? "" : " · " + offer.origin()), null));
+                    .label(null, offer.description().map(PluginDescription::name).orElse(a.id()),
+                            (offer.description().map(PluginDescription::name).isPresent() ? a.id() + " · " : "")
+                                    + a.version() + (offer.origin().isBlank() ? "" : " · " + offer.origin()), null));
             offer.description().ifPresent(d -> {
                 d.implementsRoles().forEach(role -> plugin.add(new DefaultMutableTreeNode(
                         new Node("implements " + simple(role), a.id(), role, PluginIcons.implementsRole())
@@ -211,6 +214,39 @@ public final class PluginTrees {
         }
         extra.values().forEach(root::add);
         return root;
+    }
+
+    /**
+     * Puts the top-level plugins of {@code root} whose ids share a prefix ({@code device-} in {@code device-beeper})
+     * under a node for that prefix, when at least two do. Knows no prefix in particular: it only reads the ids.
+     */
+    public static DefaultMutableTreeNode grouped(DefaultMutableTreeNode root) {
+        java.util.Map<String, List<DefaultMutableTreeNode>> byPrefix = new java.util.LinkedHashMap<>();
+        List<DefaultMutableTreeNode> children = new java.util.ArrayList<>();
+        for (int i = 0; i < root.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(i);
+            children.add(child);
+            if (child.getUserObject() instanceof Node n && n.pluginId() != null && n.pluginId().indexOf('-') > 0) {
+                byPrefix.computeIfAbsent(n.pluginId().substring(0, n.pluginId().indexOf('-')),
+                        k -> new java.util.ArrayList<>()).add(child);
+            }
+        }
+        DefaultMutableTreeNode result = new DefaultMutableTreeNode(root.getUserObject());
+        java.util.Map<String, DefaultMutableTreeNode> groups = new java.util.TreeMap<>();
+        byPrefix.forEach((prefix, members) -> {
+            if (members.size() >= 2) {
+                Node group = new Node(prefix, null, members.size() + " plugins", PluginIcons.group(), null, true)
+                        .label(null, prefix, String.valueOf(members.size()), null);
+                groups.put(prefix, new DefaultMutableTreeNode(group));
+            }
+        });
+        groups.values().forEach(result::add);
+        for (DefaultMutableTreeNode child : children) {
+            String prefix = child.getUserObject() instanceof Node n && n.pluginId() != null
+                    && n.pluginId().indexOf('-') > 0 ? n.pluginId().substring(0, n.pluginId().indexOf('-')) : null;
+            (prefix != null && groups.containsKey(prefix) ? groups.get(prefix) : result).add(child);
+        }
+        return result;
     }
 
     private static List<String> safeHeldBy(PluginService plugins, String id) {

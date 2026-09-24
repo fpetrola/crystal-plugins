@@ -63,7 +63,7 @@ public class PackagePluginMojo extends AbstractMojo {
                 .toList();
         PluginBuildRequest request = new PluginBuildRequest(new File(project.getBuild().getOutputDirectory()).toPath(),
                 jar.toPath(), pluginId, project.getVersion(), project.getGroupId(), project.getArtifactId(),
-                project.getDescription(), classpath);
+                project.getDescription(), classpath, name());
 
         PackagingResult result;
         try {
@@ -91,5 +91,18 @@ public class PackagePluginMojo extends AbstractMojo {
         static String describe(PluginDependency d) {
             return d.version() == null ? d.id() + " (any version, @Needs)" : d.id() + "@" + d.version();
         }
+    }
+
+    /**
+     * The plugin's name for people: {@code crystal.pluginName}, else the pom's own {@code <name>} (Maven does not
+     * inherit it, so a module without one gets none and tools show its id).
+     */
+    private String name() {
+        String configured = project.getProperties().getProperty("crystal.pluginName");
+        if (configured != null && !configured.isBlank()) {
+            return configured;
+        }
+        String name = project.getModel().getName();
+        return name == null || name.isBlank() || name.equals(project.getArtifactId()) ? null : name;
     }
 }

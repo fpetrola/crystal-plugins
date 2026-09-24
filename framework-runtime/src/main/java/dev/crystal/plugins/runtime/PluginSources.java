@@ -154,10 +154,13 @@ public final class PluginSources {
 
     /** The description inside a plugin jar's bytes; empty if it has no (readable) metadata. */
     static java.util.Optional<dev.crystal.plugins.api.PluginDescription> describeJar(InputStream jar) {
-        try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(jar)) {
+        try (java.util.jar.JarInputStream zip = new java.util.jar.JarInputStream(jar)) {
+            String name = zip.getManifest() == null ? null : zip.getManifest().getMainAttributes().getValue("Plugin-Name");
             for (java.util.zip.ZipEntry entry; (entry = zip.getNextEntry()) != null; ) {
                 if (entry.getName().equals(METADATA)) {
-                    return java.util.Optional.of(description(zip));
+                    var d = description(zip);
+                    return java.util.Optional.of(new dev.crystal.plugins.api.PluginDescription(d.implementsRoles(),
+                            d.definesRoles(), d.dependencies(), name));
                 }
             }
         } catch (IOException e) {

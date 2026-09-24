@@ -42,6 +42,7 @@ public final class PluginIcons {
     private static final String CLASS = "2699";         // gear
     private static final String REQUIRES = "1F517";     // link
     private static final String PLUS = "2795";
+    private static final String GROUP = "1F5C2";        // card index dividers
 
     private static final Map<String, Optional<Icon>> CACHE = new ConcurrentHashMap<>();
     /** Set when the SVG renderer cannot run here: from then on the panel goes without icons. */
@@ -106,6 +107,11 @@ public final class PluginIcons {
     /** An implementation under a role: faded when hidden or not installed, badged with where it comes from. */
     public static Icon implementation(boolean visible, boolean installed, Origin origin) {
         return icon(CLASS, badge(origin), !visible || !installed);
+    }
+
+    /** A group of plugins sharing an id prefix. */
+    public static Icon group() {
+        return icon(GROUP, null, false);
     }
 
     /** "requires ...". */

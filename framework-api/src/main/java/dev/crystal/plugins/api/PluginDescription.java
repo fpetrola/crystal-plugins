@@ -9,8 +9,14 @@ import java.util.List;
  * @param implementsRoles role interfaces its extensions implement (class names), sorted, without repetitions
  * @param definesRoles    role interfaces it declares for sub-plugins (class names)
  * @param dependencies    ids of the plugins it requires
+ * @param name            its name for people ({@code Plugin-Name} in the manifest), or null: show the id
  */
-public record PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies) {
+public record PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies,
+                                String name) {
+
+    public PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies) {
+        this(implementsRoles, definesRoles, dependencies, null);
+    }
 
     public PluginDescription {
         implementsRoles = List.copyOf(implementsRoles);

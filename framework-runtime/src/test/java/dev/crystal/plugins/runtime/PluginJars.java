@@ -40,6 +40,7 @@ public final class PluginJars {
     private final List<Path> classpath = new ArrayList<>();
     private final List<String> manualIndex = new ArrayList<>();
     private boolean processor;
+    private String name;
     private String pluginClass = "dev.crystal.plugins.runtime.internal.RolePlugin";
 
     private PluginJars(String id, String version) {
@@ -65,6 +66,12 @@ public final class PluginJars {
     /** Compiles against {@code jar} without depending on it (e.g. a dependency's own dependency). */
     public PluginJars compileAgainst(Path jar) {
         classpath.add(jar);
+        return this;
+    }
+
+    /** {@code Plugin-Name}: the plugin's name for people. */
+    public PluginJars named(String name) {
+        this.name = name;
         return this;
     }
 
@@ -146,6 +153,9 @@ public final class PluginJars {
         main.put(Attributes.Name.MANIFEST_VERSION, "1.0");
         main.putValue("Plugin-Id", id);
         main.putValue("Plugin-Version", version);
+        if (name != null) {
+            main.putValue("Plugin-Name", name);
+        }
         if (pluginClass != null) {
             main.putValue("Plugin-Class", pluginClass);
         }

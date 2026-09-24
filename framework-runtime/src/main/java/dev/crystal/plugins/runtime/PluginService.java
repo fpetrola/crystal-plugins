@@ -499,10 +499,12 @@ public final class PluginService implements AutoCloseable {
                 .toList();
         List<String> defines = new ArrayList<>();
         Optional<String> apiVersion = Optional.empty();
+        Optional<String> name = Optional.empty();
         try (java.util.jar.JarFile jar = new java.util.jar.JarFile(plugin.getPluginPath().toFile())) {
             java.util.jar.Manifest manifest = jar.getManifest();
             if (manifest != null) {
                 apiVersion = Optional.ofNullable(manifest.getMainAttributes().getValue("Crystal-Api-Version"));
+                name = Optional.ofNullable(manifest.getMainAttributes().getValue("Plugin-Name"));
             }
             java.util.zip.ZipEntry index = jar.getEntry("META-INF/crystal/roles.idx");
             if (index != null) {
@@ -520,7 +522,7 @@ public final class PluginService implements AutoCloseable {
             log.debug("Cannot read {}", plugin.getPluginPath(), e);
         }
         return new PluginInfo(plugin.getPluginId(), plugin.getDescriptor().getVersion(), status(plugin),
-                Optional.ofNullable(plugin.getFailedException()), extensions, defines, dependencies, apiVersion);
+                Optional.ofNullable(plugin.getFailedException()), extensions, defines, dependencies, apiVersion, name);
     }
 
     /** Stops every plugin (dependents first) and releases their classloaders and injectors. */

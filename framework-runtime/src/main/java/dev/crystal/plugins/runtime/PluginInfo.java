@@ -15,10 +15,17 @@ import java.util.Optional;
  * @param definesRoles the role interfaces it defines, for sub-plugins to implement
  * @param dependencies the plugins it requires, as {@code id} or {@code id@version}
  * @param apiVersion   the framework-api version it was built against, if its manifest says
+ * @param name         its name for people ({@code Plugin-Name}), if it declares one; otherwise show the id
  */
 public record PluginInfo(String id, String version, Status status, Optional<Throwable> failure,
                          List<ExtensionInfo> extensions, List<String> definesRoles, List<String> dependencies,
-                         Optional<String> apiVersion) {
+                         Optional<String> apiVersion, Optional<String> name) {
+
+    public PluginInfo(String id, String version, Status status, Optional<Throwable> failure,
+                      List<ExtensionInfo> extensions, List<String> definesRoles, List<String> dependencies,
+                      Optional<String> apiVersion) {
+        this(id, version, status, failure, extensions, definesRoles, dependencies, apiVersion, Optional.empty());
+    }
 
     public PluginInfo {
         extensions = List.copyOf(extensions);
