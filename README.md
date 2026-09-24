@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (104 tests)
+mvn install                       # framework (105 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -481,7 +481,10 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   La pestaña "Roles" es el árbol rol y quién lo define → implementaciones, marcando las ocultas, también
   colapsado. Suma los plugins del catálogo que implementarían cada rol, marcados "(not installed)",
   incluidos roles que todavía nadie implementa. "Refresh" vuelve a leer el estado y conserva lo seleccionado y lo abierto. Armar los árboles
-  (`PluginTrees`) está separado de los widgets, así que se prueba sin pantalla.
+  (`PluginTrees`) está separado de los widgets, así que se prueba sin pantalla. Cada ítem se dibuja con un
+  renderer que se pinta solo, sin HTML ni componentes internos. Algunos look and feels (darklaf) pintan el
+  renderer sin hacer su layout, y con HTML o con etiquetas adentro las filas mostraban texto de otra fila o
+  quedaban en blanco al expandir y contraer.
 
   Íconos: emojis de OpenMoji (https://openmoji.org, CC BY-SA 4.0) en SVG, cargados con JSVG, que viaja adentro de
   `framework-swing` con el paquete renombrado (`dev.crystal.plugins.swing.internal.jsvg`). Así no choca con
@@ -571,7 +574,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
   separación entre catálogo e instalado. Tests: runtime 57, build core 15, processor 7, API 7, guice 5,
-  harness 6, swing 7. Además, `examples/` con dos apps, un sub-plugin, una app con su
+  harness 6, swing 8. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o
   un listener que un plugin registra en un servicio del host, no se pueden rastrear. Desregistrar es
