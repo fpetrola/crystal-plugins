@@ -435,7 +435,10 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   la versión, a igual rol se prefiere un plugin, y un plugin con `@Replaces("application")` lo tapa (el
   árbol de roles lo muestra oculto). Los roles salen de los `roles.idx` del classpath de la app (el
   del class loader de contexto al construir el servicio). `builder().applicationImplementations(false)`
-  lo apaga, por ejemplo en un test con dobles de prueba de un rol en el classpath.
+  lo apaga, por ejemplo en un test con dobles de prueba de un rol en el classpath. Ojo con un modo "sin
+  plugins" que no construye el servicio: ahí tampoco llega lo propio de la app. Correr sin plugins es
+  correr sin jars (un servicio sin fuente), no sin lo que trae la app; si de verdad no hay servicio, eso
+  lo tiene que buscar la app por su cuenta (`ServiceLoader`).
 - **Sale del estado real,** no de `plugin-metadata.json`: el índice de extensiones de PF4J, las clases
   cargadas, el manifiesto, `roles.idx` y el registro. Por eso vale también para plugins con metadata
   escrita a mano.
