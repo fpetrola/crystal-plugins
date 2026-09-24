@@ -20,7 +20,8 @@ import org.codehaus.plexus.util.xml.Xpp3Dom;
  *   <li>turns annotation processing on explicitly ({@code -proc:full}): since JDK 23 javac no longer runs
  *       processors found on the classpath implicitly. If the author already uses
  *       {@code annotationProcessorPaths}, the processor is appended there instead, because javac then ignores
- *       the classpath for discovery. If the author lists {@code annotationProcessors} by class name, ours is
+ *       the classpath for discovery (from compiler plugin 3.5 on; older versions ignore that setting, so the
+ *       dependency is added anyway). If the author lists {@code annotationProcessors} by class name, ours is
  *       appended to that list too, because javac then runs only those;</li>
  *   <li>binds {@code package-plugin} to {@code package}, and {@code bundle-plugins} (a no-op unless configured)
  *       to {@code process-classes}, and {@code check-roles} (roles missing from the index of a single jar) to
@@ -69,6 +70,10 @@ public class CrystalLifecycleParticipant extends AbstractMavenLifecycleParticipa
             execution.setConfiguration(withProcessing(execution.getConfiguration()));
         }
 
+        // Before 3.5 the compiler plugin ignores annotationProcessorPaths without a word: the classpath it is.
+        if (!supportsProcessorPaths(compiler.getVersion())) {
+            usesProcessorPath = false;
+        }
         if (!usesProcessorPath && !hasDependency(project.getDependencies())) {
             Dependency processor = new Dependency();
             processor.setGroupId(PackagePluginMojo.FRAMEWORK_GROUP);
@@ -78,6 +83,20 @@ public class CrystalLifecycleParticipant extends AbstractMavenLifecycleParticipa
             processor.setOptional(true);
             project.getModel().addDependency(processor);
         }
+    }
+
+    /** Whether a maven-compiler-plugin version reads {@code annotationProcessorPaths} (3.5 on); unknown: yes. */
+    static boolean supportsProcessorPaths(String version) {
+        if (version == null) {
+            return true;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\.(\\d+)").matcher(version);
+        if (!m.lookingAt()) {
+            return true;
+        }
+        int major = Integer.parseInt(m.group(1));
+        int minor = Integer.parseInt(m.group(2));
+        return major > 3 || (major == 3 && minor >= 5);
     }
 
     /** Appends our processor to an existing {@code annotationProcessorPaths}; returns whether one exists. */

@@ -392,7 +392,8 @@ class GameBrowser {
   muere pidiendo `Set<Rol>`. Se arregla declarando `framework-build-processor` como dependencia
   `provided` (en el pom padre alcanza), así cualquier compilador lo encuentra por `META-INF/services`.
   Con Maven no hace falta nada de esto: si el proyecto usa `annotationProcessorPaths`, el plugin agrega el
-  processor ahí, y si lista `annotationProcessors` por nombre de clase (javac corre solo esos), lo agrega a
+  processor ahí (con maven-compiler-plugin anterior a 3.5, que ignora ese parámetro sin avisar, lo agrega
+  igual como dependencia), y si lista `annotationProcessors` por nombre de clase (javac corre solo esos), lo agrega a
   esa lista.
 - **Qué enlaza por cada rol:** `Set<Rol>` (la vista viva), `Rol` (el preferido, fijo al construir) y
   `Provider<Rol>` (el preferido en cada `get()`).
