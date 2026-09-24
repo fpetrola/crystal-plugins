@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (102 tests)
+mvn install                       # framework (103 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -506,6 +506,11 @@ Una app puede traer sus plugins adentro y usarlos desde el primer arranque sin i
   Desde ahí son plugins instalados como cualquier otro: uno que el usuario desinstala no vuelve,
   `install(id)` lo puede traer otra vez desde adentro de la app, y `checkForUpdates()` los considera
   cuando la fuente principal (si hay) no ofrece ese id.
+- **Una build nueva de la app actualiza lo instalado que trae distinto.** Al arrancar, un plugin instalado
+  que el bundle trae con otros bytes en la misma versión (un `-SNAPSHOT` recompilado) o en una versión
+  más nueva se reemplaza por el de la app, y se instalan las dependencias nuevas que traiga, si vienen en
+  el bundle. Todo sale de adentro de la app, sin red. No vuelve lo que el usuario desinstaló, y no se toca
+  una versión instalada más nueva que la del bundle (una actualización del catálogo).
 - **Lo de adentro gana salvo que afuera haya algo más nuevo.** Si la fuente principal ofrece un plugin que
   también viene en la app, vale el de la app mientras la fuente no tenga una versión más nueva: sacar un
   plugin del bundle y volver a instalarlo trae el mismo jar sin bajar nada, aunque la fuente tenga esa
@@ -561,7 +566,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 56, build core 15, processor 7, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 57, build core 15, processor 7, API 7, guice 5,
   harness 6, swing 6. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

@@ -116,4 +116,75 @@ class BundledDefaultsTest {
             assertEquals(List.of(), plugins.checkForUpdates().changes(), "the bundled csv is not an update away");
         }
     }
+
+    /** An application build carrying exactly {@code jars} as its default plugins. */
+    private ClassLoader applicationWith(String build, Path... jars) throws IOException {
+        Path classes = dir.resolve("app-" + build);
+        Path bundled = Files.createDirectories(classes.resolve("META-INF/crystal/bundled"));
+        StringBuilder index = new StringBuilder();
+        for (Path jar : jars) {
+            Path copy = Files.copy(jar, bundled.resolve(jar.getFileName()));
+            var main = new java.util.jar.JarFile(copy.toFile()).getManifest().getMainAttributes();
+            index.append(main.getValue("Plugin-Id")).append('\t').append(main.getValue("Plugin-Version")).append('\t')
+                    .append(PluginSources.sha256(copy)).append('\t').append(copy.getFileName()).append('\n');
+        }
+        Files.writeString(classes.resolve("META-INF/crystal/bundled.idx"), index);
+        return new URLClassLoader(new URL[] {classes.toUri().toURL()}, getClass().getClassLoader());
+    }
+
+    @Test
+    void aNewApplicationBuildUpdatesTheInstalledDefaultsItRebuilt() throws IOException {
+        String version = "0.0.2-SNAPSHOT";
+        Path v1 = Files.createDirectories(dir.resolve("v1"));
+        Path fuller1 = PluginJars.plugin("device-fuller", version).withProcessor()
+                .source("acme.fuller.Exporter", """
+                        package acme.fuller;
+                        import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                        import java.util.List;
+                        public class Exporter implements ReportExporter {
+                            public String format() { return "fuller alone"; }
+                            public String export(List<String> rows) { return ""; }
+                        }
+                        """).buildInto(v1);
+        Path md = PluginJars.plugin("md", version).withProcessor()
+                .source("acme.md.Exporter", """
+                        package acme.md;
+                        import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                        import java.util.List;
+                        public class Exporter implements ReportExporter {
+                            public String format() { return "md"; }
+                            public String export(List<String> rows) { return ""; }
+                        }
+                        """).buildInto(v1);
+        try (PluginService plugins = service(applicationWith("v1", fuller1, md))) {
+            plugins.start();
+            plugins.uninstall("md");
+        }
+
+        // The next build of the application: fuller rebuilt, same version, now using the AY chip plugin.
+        Path v2 = Files.createDirectories(dir.resolve("v2"));
+        Path ay = PluginJars.plugin("device-ay", version).source("acme.ay.Ay", """
+                package acme.ay;
+                public class Ay { public static String chip() { return "ay"; } }
+                """).buildInto(v2);
+        Path fuller2 = PluginJars.plugin("device-fuller", version).withProcessor()
+                .dependsOn("device-ay@" + version, ay)
+                .source("acme.fuller.Exporter", """
+                        package acme.fuller;
+                        import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                        import java.util.List;
+                        public class Exporter implements ReportExporter {
+                            public String format() { return "fuller with " + acme.ay.Ay.chip(); }
+                            public String export(List<String> rows) { return ""; }
+                        }
+                        """).buildInto(v2);
+        Path md2 = Files.copy(md, v2.resolve(md.getFileName()));
+        try (PluginService plugins = service(applicationWith("v2", fuller2, ay, md2))) {
+            plugins.start();
+            assertEquals(Set.of("fuller with ay"), formats(plugins), "the rebuilt jar, with its new dependency");
+            assertEquals(Set.of("device-ay", "device-fuller"),
+                    plugins.plugins().stream().map(PluginInfo::id).collect(Collectors.toSet()),
+                    "md, uninstalled by the user, does not come back");
+        }
+    }
 }

@@ -64,6 +64,8 @@ public final class PluginInstaller {
         if (defaults != null && cache.installed().isEmpty()) {
             // First start of this cache: the application's default plugins, from inside it, no network.
             installFrom(defaults);
+        } else if (defaults != null) {
+            updateFromDefaults();
         }
         List<PluginArtifact> installed = cache.installed().orElse(List.of());
         List<PluginArtifact> missing = installed.stream().filter(a -> !cache.contains(a)).toList();
@@ -126,6 +128,58 @@ public final class PluginInstaller {
         }
         Map<String, PluginArtifact> previous = byId(cache.installed().orElse(List.of()));
         return commit(previous, next, inUse, downloads, List.of(), List.of());
+    }
+
+    /**
+     * A new build of the application may carry other bytes for a default plugin that is installed: the same
+     * version rebuilt (a {@code -SNAPSHOT}, typically with new dependencies) or a newer version. Such a plugin is
+     * replaced by the application's, and the dependencies it newly needs are installed if the application carries
+     * them. Nothing else changes: a default the user uninstalled does not come back, and an installed version newer
+     * than the application's (an update from the catalog) is kept. No network: everything comes from inside the
+     * application.
+     */
+    private void updateFromDefaults() {
+        Map<String, PluginArtifact> carried;
+        try {
+            carried = byId(defaults.artifacts());
+        } catch (IOException | PluginException e) {
+            log.warn("Cannot read the application's default plugins; installed plugins stay as they are", e);
+            return;
+        }
+        Map<String, PluginArtifact> previous = byId(cache.installed().orElse(List.of()));
+        Map<String, PluginArtifact> next = new TreeMap<>(previous);
+        java.util.Deque<PluginArtifact> work = new java.util.ArrayDeque<>();
+        for (PluginArtifact installed : previous.values()) {
+            PluginArtifact inside = carried.get(installed.id());
+            if (inside != null && !inside.equals(installed)
+                    && !LayeredSource.newer(installed.version(), inside.version())) {
+                next.put(inside.id(), inside);
+                work.add(inside);
+            }
+        }
+        if (work.isEmpty()) {
+            return;
+        }
+        int extracted = 0;
+        while (!work.isEmpty()) {
+            PluginArtifact artifact = work.pop();
+            try {
+                extracted += cache.fetch(defaults, artifact) ? 1 : 0;
+            } catch (IOException | PluginException e) {
+                log.error("Cannot extract {} from the application; keeping the installed plugins as they are",
+                        artifact.coordinates(), e);
+                return;
+            }
+            for (PluginDependency dependency : descriptor(artifact).getDependencies()) {
+                PluginArtifact needed = carried.get(dependency.getPluginId());
+                if (!dependency.isOptional() && !next.containsKey(dependency.getPluginId()) && needed != null) {
+                    next.put(needed.id(), needed);
+                    work.add(needed);
+                }
+            }
+        }
+        UpdateReport report = commit(previous, next, Set.of(), extracted, List.of(), List.of());
+        log.info("Updated from the application's default plugins: {}", report.changes());
     }
 
     private void installFrom(PluginSource from) {
