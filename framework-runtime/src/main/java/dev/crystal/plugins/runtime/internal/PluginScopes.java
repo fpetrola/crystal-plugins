@@ -101,7 +101,39 @@ public final class PluginScopes {
             implementations.add(type);
         }
 
-        Injector parent = enclosing(plugin);
+        activate(id, plugin.getDescriptor().getVersion(), implementations, enclosing(plugin));
+    }
+
+    /**
+     * Activates the role implementations the application itself brings: for every role listed in a
+     * {@code META-INF/crystal/roles.idx} visible to {@code loader}, the classes its {@code META-INF/services}
+     * declare. They take part like a plugin with id {@code application}, a version below every plugin's.
+     */
+    public void activateApplication(ClassLoader loader, String id, String version) {
+        Set<Class<?>> implementations = new java.util.TreeSet<>(java.util.Comparator.comparing(Class::getName));
+        for (Class<?> role : Roles.indexed(loader)) {
+            try {
+                java.util.ServiceLoader.load(role, loader).stream().map(java.util.ServiceLoader.Provider::type)
+                        .forEach(implementations::add);
+            } catch (java.util.ServiceConfigurationError e) {
+                log.warn("The application's implementations of {} are not usable: {}", role.getName(), e.getMessage());
+            }
+        }
+        if (!implementations.isEmpty()) {
+            activate(id, version, List.copyOf(implementations), null);
+        }
+    }
+
+    /** Stops what {@link #activateApplication} started. */
+    public void deactivateApplication(String id) {
+        deactivate(id, null);
+    }
+
+    private void activate(String id, String version, List<Class<?>> implementations, Injector parent) {
+        if (scopes.containsKey(id)) {
+            throw new PluginRuntimeException("'{}' is already active (the application's own implementations use"
+                    + " the id 'application')", id);
+        }
         RoleRegistry.Built<Injector> built = registry.build(() -> {
             // Singletons are eager (production stage): they are all built, and their fixed references recorded, here.
             Injector own = Guice.createInjector(Stage.PRODUCTION, host,
@@ -114,7 +146,6 @@ public final class PluginScopes {
 
         List<Object> instances = new ArrayList<>(implementations.size());
         List<Contribution> contributions = new ArrayList<>(implementations.size());
-        String version = plugin.getDescriptor().getVersion();
         for (Class<?> type : implementations) {
             Object instance = injector.getInstance(type);
             instances.add(instance);
@@ -143,9 +174,12 @@ public final class PluginScopes {
     }
 
     void deactivate(PluginWrapper plugin) {
-        String id = plugin.getPluginId();
+        deactivate(plugin.getPluginId(), plugin.getPluginClassLoader());
+    }
+
+    private void deactivate(String id, ClassLoader loader) {
         Scope scope = scopes.remove(id);
-        registry.withdraw(id, plugin.getPluginClassLoader());
+        registry.withdraw(id, loader);
         if (scope == null) {
             return;
         }

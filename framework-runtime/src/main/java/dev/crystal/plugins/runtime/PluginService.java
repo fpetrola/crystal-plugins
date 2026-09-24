@@ -56,6 +56,14 @@ public final class PluginService implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(PluginService.class);
 
+    /**
+     * The plugin id under which the application's own role implementations take part (see {@link #start()}),
+     * for {@code @Replaces} and a {@link ConflictResolver}. No plugin can have it.
+     */
+    public static final String APPLICATION = "application";
+    /** Their version: below any plugin's, so among equals a plugin is preferred to what the application brings. */
+    public static final String APPLICATION_VERSION = "0.0.0";
+
     private final PluginCache cache;
     private final boolean ownsCache;
     private final PluginInstaller installer;
@@ -63,12 +71,16 @@ public final class PluginService implements AutoCloseable {
     private final RoleRegistry registry;
     private final PluginScopes scopes;
     private List<PluginArtifact> active = List.of();
+    private final ClassLoader applicationLoader;
     private boolean started;
     private boolean closed;
     private final List<Runnable> listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private PluginService(Builder builder) {
         this.registry = new RoleRegistry(builder.conflictResolver);
+        ClassLoader context = Thread.currentThread().getContextClassLoader();
+        this.applicationLoader = !builder.applicationImplementations ? null
+                : context != null ? context : PluginService.class.getClassLoader();
         this.ownsCache = builder.cacheDirectory == null;
         try {
             this.cache = new PluginCache(ownsCache
@@ -98,6 +110,14 @@ public final class PluginService implements AutoCloseable {
      *
      * <p>A plugin that fails (unresolvable dependency, exception in {@code onStart}) is reported by
      * {@link #plugins()}; it does not prevent the others from starting.
+     *
+     * <p>The application's own implementations start first: for every role in a {@code META-INF/crystal/roles.idx}
+     * of the application's class path, the classes its {@code META-INF/services} declare for that role (what
+     * {@code ServiceLoader} would find, built once, here, with {@code @Inject} of exposed services). From then on
+     * they are one more contribution, under the id {@value #APPLICATION}: in {@link #roles}, {@link #preferred},
+     * {@code create()}d objects and what plugins inject, through the {@link ConflictResolver} like the rest (a
+     * plugin's {@code @Replaces("application")} hides them). The class path is the thread context class loader's
+     * when the service is built. {@code builder().applicationImplementations(false)} leaves them out.
      */
     public synchronized void start() {
         checkOpen();
@@ -107,6 +127,13 @@ public final class PluginService implements AutoCloseable {
         List<PluginArtifact> installed = installer.prepare();
         started = true;
         active = installed;
+        if (applicationLoader != null) {
+            try {
+                scopes.activateApplication(applicationLoader, APPLICATION, APPLICATION_VERSION);
+            } catch (RuntimeException e) {
+                log.error("The application's own role implementations failed to start", e);
+            }
+        }
         manager.usePlugins(installed.stream().map(cache::path).toList());
         manager.loadPlugins();
         manager.startPlugins();
@@ -486,6 +513,7 @@ public final class PluginService implements AutoCloseable {
         closed = true;
         manager.stopPlugins();
         manager.unloadPlugins();
+        scopes.deactivateApplication(APPLICATION);
         if (ownsCache) {
             deleteRecursively(cache.root());
         }
@@ -534,6 +562,7 @@ public final class PluginService implements AutoCloseable {
         private Path cacheDirectory;
         private ConflictResolver conflictResolver = ConflictResolver.standard();
         private final Map<Class<?>, Object> exposed = new LinkedHashMap<>();
+        private boolean applicationImplementations = true;
 
         private Builder() {
         }
@@ -576,6 +605,16 @@ public final class PluginService implements AutoCloseable {
          */
         public Builder conflictResolver(ConflictResolver conflictResolver) {
             this.conflictResolver = Objects.requireNonNull(conflictResolver);
+            return this;
+        }
+
+        /**
+         * Whether the application's own implementations of its roles (declared in its {@code META-INF/services})
+         * take part next to the plugins' (see {@link PluginService#start()}). Default true; false for a service
+         * that should see plugins only, for instance a test whose class path has role test doubles.
+         */
+        public Builder applicationImplementations(boolean include) {
+            this.applicationImplementations = include;
             return this;
         }
 

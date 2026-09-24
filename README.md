@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (90 tests)
+mvn install                       # framework (93 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -387,6 +387,12 @@ class GameBrowser {
   shade) revisa los jars que produjo el proyecto: si alguno tiene un `@RoleInterface` que su
   `roles.idx` no lista, el build falla con el nombre del rol. `-Dcrystal.skipRolesCheck` lo saltea (para
   roles que se pasan a mano). Ojo: `mvn package` no llega a `verify`.
+- **En el IDE, el processor también tiene que estar.** IntelliJ (y otros) compilan por su cuenta, sin el
+  plugin de Maven, así que no corre el processor que el plugin agrega: no se escribe `roles.idx` y Guice
+  muere pidiendo `Set<Rol>`. Se arregla declarando `framework-build-processor` como dependencia
+  `provided` (en el pom padre alcanza), así cualquier compilador lo encuentra por `META-INF/services`.
+  Según lo que probó OOZX, declararlo en `annotationProcessorPaths` no sirve: pisa lo que agrega el plugin
+  y deja de generarse `roles.idx` también con Maven.
 - **Qué enlaza por cada rol:** `Set<Rol>` (la vista viva), `Rol` (el preferido, fijo al construir) y
   `Provider<Rol>` (el preferido en cada `get()`).
 - **Rastrea referencias fijas también en el grafo de la app,** con un `ProvisionListener` que construye
@@ -419,6 +425,15 @@ Lo que una app muestra en su panel de configuración lo da el framework: la app 
   roles ya son vistas vivas; esto es para lo que la aplicación arma a partir de ellos (menús, ventanas,
   este panel). Corre en el hilo que hizo el cambio y un listener que falla se loguea sin afectar a los
   demás. El panel de Swing se suscribe y se refresca solo.
+- **Lo que trae la app también cuenta.** Si la app implementa un rol suyo (un módulo propio, no un
+  plugin) y lo declara en `META-INF/services` (el processor lo hace solo), `start()` lo activa antes que los
+  plugins, como si fuera un plugin más con id `application` y versión `0.0.0`: aparece en `roles()`,
+  `preferred()`, lo que se arma con `create()`, lo que inyectan los plugins y `PluginsModule`. Se crea una
+  sola vez, con `@Inject` de los servicios expuestos y `HasLifecycle`. Pasa por el `ConflictResolver`: por
+  la versión, a igual rol se prefiere un plugin, y un plugin con `@Replaces("application")` lo tapa (el
+  árbol de roles lo muestra oculto). Los roles salen de los `roles.idx` del classpath de la app (el
+  del class loader de contexto al construir el servicio). `builder().applicationImplementations(false)`
+  lo apaga, por ejemplo en un test con dobles de prueba de un rol en el classpath.
 - **Sale del estado real,** no de `plugin-metadata.json`: el índice de extensiones de PF4J, las clases
   cargadas, el manifiesto, `roles.idx` y el registro. Por eso vale también para plugins con metadata
   escrita a mano.
@@ -490,7 +505,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 49, build core 13, processor 6, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 52, build core 13, processor 6, API 7, guice 5,
   harness 6, swing 4. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

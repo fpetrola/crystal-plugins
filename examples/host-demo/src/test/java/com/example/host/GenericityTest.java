@@ -76,7 +76,8 @@ class GenericityTest {
             Set<ReportExporter> exporters = plugins.roles(ReportExporter.class);
             Set<String> formats = new TreeSet<>();
             exporters.forEach(e -> formats.add(e.format()));
-            assertEquals(Set.of("csv", "markdown"), formats);
+            assertEquals(Set.of("csv", "markdown", "memory"), formats,
+                    "the plugins' exporters and the one the application brings (InMemoryExporter)");
 
             ReportExporter csv = exporters.stream().filter(e -> e.format().equals("csv")).findFirst().orElseThrow();
             assertEquals("a;b\n1;2", csv.export(List.of("a", "b"), List.of(List.of("1", "2"))),

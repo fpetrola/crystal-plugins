@@ -79,7 +79,9 @@ public final class RoleRegistry {
      */
     synchronized void withdraw(String pluginId, ClassLoader pluginLoader) {
         snapshot = new Snapshot(snapshot.contributions().stream().filter(c -> !c.pluginId().equals(pluginId)).toList());
-        views.keySet().removeIf(role -> role.getClassLoader() == pluginLoader);
+        if (pluginLoader != null) { // null: the application's own implementations, whose roles stay
+            views.keySet().removeIf(role -> role.getClassLoader() == pluginLoader);
+        }
         pluginHolders.remove(pluginId);
         pluginHolders.values().forEach(holders -> holders.remove(pluginId));
         applicationHolders.remove(pluginId);

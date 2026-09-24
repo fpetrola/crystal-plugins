@@ -42,6 +42,36 @@ public final class Roles {
         return roles;
     }
 
+    /** The roles listed in every {@code META-INF/crystal/roles.idx} {@code loader} sees; unknown names skipped. */
+    public static Set<Class<?>> indexed(ClassLoader loader) {
+        Set<Class<?>> roles = new LinkedHashSet<>();
+        try {
+            java.util.Enumeration<java.net.URL> indexes = loader.getResources("META-INF/crystal/roles.idx");
+            while (indexes.hasMoreElements()) {
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                        indexes.nextElement().openStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    for (String line : reader.lines().toList()) {
+                        String name = line.replaceFirst("#.*", "").strip();
+                        if (name.isEmpty()) {
+                            continue;
+                        }
+                        try {
+                            Class<?> type = Class.forName(name, false, loader);
+                            if (isRole(type)) {
+                                roles.add(type);
+                            }
+                        } catch (ClassNotFoundException | LinkageError e) {
+                            // An index of a jar whose classes are not all there: nothing to activate for it.
+                        }
+                    }
+                }
+            }
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException("Cannot read META-INF/crystal/roles.idx", e);
+        }
+        return roles;
+    }
+
     /**
      * Detects the classic packaging mistake: a plugin jar that bundles framework-api (or the app API), so its
      * classes see a different {@code RoleInterface} class than the host. Returns a hint, or {@code null}.
