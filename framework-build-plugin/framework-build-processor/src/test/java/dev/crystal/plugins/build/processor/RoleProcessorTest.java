@@ -246,6 +246,41 @@ class RoleProcessorTest {
         assertTrue(Files.exists(out.resolve("META-INF/plugin-metadata.json")));
     }
 
+    @Test
+    void anIncrementalCompilationKeepsWhatItDidNotRecompile() throws IOException {
+        compile(Map.of(
+                "dev.Equipment", "package dev; @dev.crystal.plugins.api.RoleInterface public interface Equipment { }",
+                "dev.DeskEquipment",
+                "package dev; @dev.crystal.plugins.api.RoleInterface public interface DeskEquipment { }",
+                "dev.Beeper", "package dev; public class Beeper implements Equipment { }",
+                "dev.Tape", "package dev; public class Tape implements Equipment { }"));
+        // The IDE recompiles only the new file.
+        Result second = compile(Map.of(
+                "dev.WhatGameThisIs",
+                "package dev; @dev.crystal.plugins.api.RoleInterface public interface WhatGameThisIs { }",
+                "dev.Guesser", "package dev; public class Guesser implements WhatGameThisIs { }"));
+        assertEquals(List.of(), second.errors());
+
+        assertEquals(List.of("dev.DeskEquipment", "dev.Equipment", "dev.WhatGameThisIs"), lines(out.resolve(ROLES)));
+        assertEquals(List.of("dev.Beeper", "dev.Guesser", "dev.Tape"), lines(out.resolve(EXTENSIONS)));
+        assertEquals(List.of("dev.Beeper", "dev.Tape"), lines(out.resolve("META-INF/services/dev.Equipment")));
+        assertTrue(Files.readString(out.resolve(METADATA)).contains("dev.Beeper"));
+
+        // A class deleted since drops out.
+        Files.delete(out.resolve("dev/Tape.class"));
+        compile(Map.of("dev.Other", "package dev; public class Other { }", "dev.Guesser",
+                "package dev; public class Guesser implements WhatGameThisIs { }"));
+        assertEquals(List.of("dev.Beeper", "dev.Guesser"), lines(out.resolve(EXTENSIONS)));
+    }
+
+    private static final String ROLES = "META-INF/crystal/roles.idx";
+    private static final String EXTENSIONS = "META-INF/extensions.idx";
+    private static final String METADATA = "META-INF/plugin-metadata.json";
+
+    private static List<String> lines(Path file) throws IOException {
+        return Files.readAllLines(file).stream().filter(l -> !l.startsWith("#") && !l.isBlank()).toList();
+    }
+
     private record Result(List<String> errors, List<String> notes, List<String> warnings) {
     }
 
@@ -266,7 +301,8 @@ class RoleProcessorTest {
                 }
             }));
             List<String> options = List.of("--release", "21", "-proc:full", "-d", out.toString(),
-                    "-cp", System.getProperty("java.class.path"));
+                    // The output is on the class path, as in an IDE's incremental compilation.
+                    "-cp", System.getProperty("java.class.path") + java.io.File.pathSeparator + out);
             JavaCompiler.CompilationTask task = javac.getTask(null, files, diagnostics, options, null, units);
             task.setProcessors(List.of(processors));
             task.call();

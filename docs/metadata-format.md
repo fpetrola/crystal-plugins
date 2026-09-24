@@ -79,6 +79,11 @@ Todos los módulos lo escriben con el mismo nombre, así que al armar un jar ún
 (en `maven-shade`, `AppendingTransformer` con `<resource>META-INF/crystal/roles.idx</resource>`); si no,
 queda uno solo y los roles de los otros no se descubren.
 
+En una compilación incremental (un IDE que recompila un archivo), el processor lee los índices que ya están
+en la salida y vuelve a incluir las clases que no se recompilaron y siguen existiendo; las borradas se caen.
+Así `roles.idx`, `extensions.idx`, `META-INF/services` y `plugin-metadata.json` describen siempre el módulo
+entero.
+
 ### `META-INF/plugin-metadata.json`
 
 Descriptor completo, para herramientas y para los próximos hitos (resolución de conflictos, chequeos

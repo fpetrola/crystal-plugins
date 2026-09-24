@@ -63,6 +63,8 @@ public final class RoleProcessor extends AbstractProcessor {
     private final Set<String> definedRoles = new TreeSet<>();
     private final List<TypeElement> originating = new ArrayList<>();
     private final List<TypeElement> roleOrigins = new ArrayList<>();
+    /** Every type compiled in this compilation, whatever it turned out to be. */
+    private final Set<String> compiled = new HashSet<>();
 
     @Override
     public Set<String> getSupportedAnnotationTypes() {
@@ -78,6 +80,7 @@ public final class RoleProcessor extends AbstractProcessor {
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {
         if (round.processingOver()) {
+            keepPreviousOutputs();
             if (!extensions.isEmpty()) {
                 writeOutputs();
             }
@@ -104,6 +107,7 @@ public final class RoleProcessor extends AbstractProcessor {
     }
 
     private void inspect(TypeElement type) {
+        compiled.add(binaryName(type));
         boolean isRole = hasAnnotation(type, Contract.ROLE_INTERFACE);
         if (isRole) {
             if (type.getKind() != ElementKind.INTERFACE) {
@@ -219,6 +223,42 @@ public final class RoleProcessor extends AbstractProcessor {
         return target != null && processingEnv.getTypeUtils().isAssignable(
                 processingEnv.getTypeUtils().erasure(type.asType()),
                 processingEnv.getTypeUtils().erasure(target.asType()));
+    }
+
+    /**
+     * An incremental compilation (an IDE recompiling one file) sees only part of the module, but the indexes
+     * describe all of it. So the indexes already in the output are read back, and every class they list that was
+     * not compiled now and still exists is inspected again from its class file: the outputs describe the whole
+     * module, and a deleted class drops out.
+     */
+    private void keepPreviousOutputs() {
+        Set<String> previous = new TreeSet<>();
+        previous.addAll(readPrevious(Contract.EXTENSIONS_INDEX));
+        previous.addAll(readPrevious(Contract.ROLES_INDEX));
+        if (previous.isEmpty() || previous.stream().allMatch(compiled::contains)) {
+            return;
+        }
+        for (String name : previous) {
+            if (compiled.contains(name)) {
+                continue; // compiled now: what it is now is what counts
+            }
+            TypeElement type = processingEnv.getElementUtils().getTypeElement(name.replace('$', '.'));
+            if (type != null) {
+                inspect(type);
+            }
+        }
+    }
+
+    private List<String> readPrevious(String resource) {
+        try {
+            FileObject file = processingEnv.getFiler().getResource(StandardLocation.CLASS_OUTPUT, "", resource);
+            try (java.io.InputStream in = file.openInputStream()) {
+                return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).lines()
+                        .map(line -> line.replaceFirst("#.*", "").strip()).filter(line -> !line.isEmpty()).toList();
+            }
+        } catch (IOException | IllegalArgumentException e) {
+            return List.of(); // nothing there yet: a full compilation
+        }
     }
 
     private void writeOutputs() {
