@@ -249,6 +249,38 @@ public final class PluginService implements AutoCloseable {
         return installer.describe(artifact);
     }
 
+    /**
+     * The loaded plugins with an extension that answers {@code key} for {@code role} (see {@code @Answers}), read
+     * from their metadata, ignoring case.
+     *
+     * @param role the role interface's class name (a plugin-defined role need not be loadable here)
+     */
+    public List<String> answering(String role, String key) {
+        List<String> ids = new ArrayList<>();
+        for (PluginWrapper plugin : manager.getPlugins()) {
+            try (java.io.InputStream in = Files.newInputStream(plugin.getPluginPath())) {
+                if (PluginSources.describeJar(in).map(d -> d.answers(role, key)).orElse(false)) {
+                    ids.add(plugin.getPluginId());
+                }
+            } catch (IOException e) {
+                log.debug("Cannot read {}", plugin.getPluginPath(), e);
+            }
+        }
+        ids.sort(null);
+        return ids;
+    }
+
+    /**
+     * What the catalog offers, not installed, that answers {@code key} for {@code role}: whom to install when
+     * nothing installed handles something. Uses {@link #describe}, so it needs a catalog that describes its
+     * plugins (local ones do; a remote one publishes each plugin's metadata). May use the network.
+     */
+    public List<PluginArtifact> availableAnswering(String role, String key) {
+        return available().stream()
+                .filter(a -> describe(a).map(d -> d.answers(role, key)).orElse(false))
+                .toList();
+    }
+
     /** Whether {@code artifact} is one the application carries inside itself (its default plugins). */
     public boolean isBundled(PluginArtifact artifact) {
         return installer.isBundled(artifact);

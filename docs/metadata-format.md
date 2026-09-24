@@ -125,7 +125,7 @@ y siempre en este orden, así el archivo es reproducible byte a byte.
 | `format`       | processor         | Versión del layout. Quien lo consuma debe rechazar formatos que no conozca.                          |
 | `id`, `version`| build tool        | Igual que en el manifiesto.                                                                          |
 | `apiVersion`   | build tool        | Versión de `framework-api` en tiempo de compilación.                                                 |
-| `extensions`   | processor         | Las extensiones (ver arriba): roles (ordenados), `@Replaces`, `@Needs`, si implementa `HasLifecycle`.|
+| `extensions`   | processor         | Las extensiones (ver arriba): roles (ordenados), `@Replaces`, `@Needs`, si implementa `HasLifecycle`, y `answers` (rol → claves de `@Answers`) si tiene.|
 | `definesRoles` | processor         | Interfaces `@RoleInterface` declaradas *dentro* de este plugin (puntos de extensión para sub-plugins).|
 | `roleApis`     | build tool        | Para cada rol implementado, el artefacto (y su versión) que aportó la interfaz al compilar.          |
 | `dependencies` | build tool        | `{id, version?, source, types?}`. Ver "Dependencias". |

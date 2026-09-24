@@ -247,6 +247,35 @@ class RoleProcessorTest {
     }
 
     @Test
+    void answersGoIntoTheMetadataPerRole() throws IOException {
+        Result result = compile(Map.of(
+                "dev.SnapshotFile", "package dev; @dev.crystal.plugins.api.RoleInterface public interface SnapshotFile { }",
+                "dev.Machine", "package dev; @dev.crystal.plugins.api.RoleInterface public interface Machine { }",
+                "dev.Tape", """
+                        package dev;
+                        @dev.crystal.plugins.api.Answers({"tzx", "tap"})
+                        public class Tape implements SnapshotFile { }
+                        """,
+                "dev.Pentagon", """
+                        package dev;
+                        @dev.crystal.plugins.api.Answers(value = "Pentagon 128", role = Machine.class)
+                        @dev.crystal.plugins.api.Answers(value = "pent", role = SnapshotFile.class)
+                        public class Pentagon implements Machine, SnapshotFile { }
+                        """,
+                "dev.Wrong", """
+                        package dev;
+                        @dev.crystal.plugins.api.Answers(value = "x", role = Machine.class)
+                        public class Wrong implements SnapshotFile { }
+                        """));
+        assertEquals(1, result.errors().size(), result.errors().toString());
+        assertTrue(result.errors().get(0).contains("dev.Machine"), result.errors().get(0));
+        String json = Files.readString(out.resolve(METADATA)).replaceAll("\\s+", "");
+        assertTrue(json.contains("\"answers\":{\"dev.SnapshotFile\":[\"tap\",\"tzx\"]}"), json);
+        assertTrue(json.contains("\"answers\":{\"dev.Machine\":[\"Pentagon128\"],\"dev.SnapshotFile\":[\"pent\"]}"),
+                json);
+    }
+
+    @Test
     void anIncrementalCompilationKeepsWhatItDidNotRecompile() throws IOException {
         compile(Map.of(
                 "dev.Equipment", "package dev; @dev.crystal.plugins.api.RoleInterface public interface Equipment { }",

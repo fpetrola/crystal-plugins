@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -105,6 +106,33 @@ class PluginLibrariesTest {
             assertEquals("divide over ide", plugins.roles(ReportExporter.class).iterator().next().format());
             assertTrue(plugins.plugins().stream().allMatch(p -> p.status() == PluginInfo.Status.STARTED),
                     plugins.plugins().toString());
+        }
+    }
+
+    @Test
+    void whoAnswersAKeyIsFoundInstalledOrNot() throws Exception {
+        for (String[] p : new String[][] {{"tape", "\"tap\", \"tzx\""}, {"disk", "\"dsk\""}}) {
+            PluginJars.plugin(p[0], "1.0.0").withProcessor().source("acme." + p[0] + ".Exporter", """
+                    package acme.%s;
+                    import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                    import java.util.List;
+                    @dev.crystal.plugins.api.Answers({%s})
+                    public class Exporter implements ReportExporter {
+                        public String format() { return "%s"; }
+                        public String export(List<String> rows) { return ""; }
+                    }
+                    """.formatted(p[0], p[1], p[0])).buildInto(repo);
+        }
+        String role = ReportExporter.class.getName();
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo))
+                .cacheDirectory(cache).build()) {
+            plugins.start();
+            assertEquals(List.of("tape"), plugins.availableAnswering(role, "TZX").stream().map(a -> a.id()).toList(),
+                    "not installed: found through the catalog's description, ignoring case");
+            assertEquals(List.of(), plugins.answering(role, "tzx"), "nothing installed answers it yet");
+            plugins.install("tape");
+            assertEquals(List.of("tape"), plugins.answering(role, "tzx"));
+            assertEquals(List.of(), plugins.availableAnswering(role, "tzx"));
         }
     }
 }

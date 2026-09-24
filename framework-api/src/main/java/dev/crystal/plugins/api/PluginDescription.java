@@ -9,18 +9,30 @@ import java.util.List;
  * @param implementsRoles role interfaces its extensions implement (class names), sorted, without repetitions
  * @param definesRoles    role interfaces it declares for sub-plugins (class names)
  * @param dependencies    ids of the plugins it requires
+ * @param answers         role → the keys its extensions answer for it ({@link Answers})
  * @param name            its name for people ({@code Plugin-Name} in the manifest), or null: show the id
  */
 public record PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies,
-                                String name) {
-
-    public PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies) {
-        this(implementsRoles, definesRoles, dependencies, null);
-    }
+                                String name, java.util.Map<String, List<String>> answers) {
 
     public PluginDescription {
         implementsRoles = List.copyOf(implementsRoles);
         definesRoles = List.copyOf(definesRoles);
         dependencies = List.copyOf(dependencies);
+        answers = java.util.Map.copyOf(answers);
+    }
+
+    public PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies,
+                             String name) {
+        this(implementsRoles, definesRoles, dependencies, name, java.util.Map.of());
+    }
+
+    public PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies) {
+        this(implementsRoles, definesRoles, dependencies, null);
+    }
+
+    /** Whether it answers {@code key} (ignoring case) for {@code role} (a class name). */
+    public boolean answers(String role, String key) {
+        return answers.getOrDefault(role, List.of()).stream().anyMatch(k -> k.equalsIgnoreCase(key));
     }
 }

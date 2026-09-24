@@ -44,7 +44,7 @@ el plugin de Maven real. Incluye un sub-plugin (`plugin-csv-semicolon` implement
 `plugin-csv-exporter`) cuya dependencia genera el build.
 
 ```bash
-mvn install                       # framework (106 tests)
+mvn install                       # framework (108 tests)
 (cd examples && mvn clean install) # uso de punta a punta + prueba de genericidad
 ```
 
@@ -531,6 +531,21 @@ Una app puede traer sus plugins adentro y usarlos desde el primer arranque sin i
 - En `examples/host-demo`, el jar de la app lleva los 4 plugins de ejemplo y un test arranca solo con
   eso.
 
+### Quién responde qué: `@Answers`
+
+Una extensión declara las claves que responde para su rol: las extensiones de archivo que abre un lector,
+los nombres de máquina que arma. Por ejemplo `@Answers({"tap", "tzx"})`, o
+`@Answers(value = "Pentagon 128", role = Machine.class)` si implementa varios roles; la anotación se puede
+repetir. El processor lo escribe en `plugin-metadata.json`, así se lee sin cargar el plugin:
+
+- `PluginDescription.answers()` lo expone para lo que ofrece el catálogo, sin instalarlo;
+- `PluginService.answering(rol, clave)` busca entre los plugins cargados;
+- `PluginService.availableAnswering(rol, clave)` busca entre lo disponible: a quién instalar cuando nada de
+  lo instalado se ocupa de algo.
+
+Las claves son el vocabulario de la app; el framework solo las guarda y las compara, sin distinguir
+mayúsculas. Un catálogo remoto las publica con el mismo `plugin-metadata.json` que ya usa para los roles.
+
 ### Bibliotecas de terceros de un plugin
 
 Un plugin lleva adentro las bibliotecas que necesita y la app no tiene, sin configurar nada.
@@ -578,7 +593,7 @@ metadata de dominio de la app y vive en su `PluginSource`; el framework aporta e
 ## Estado y límites conocidos
 
 - Hechos: los hitos 1 a 8 del plan, más `install(pluginId)`, el adaptador `framework-guice` y la
-  separación entre catálogo e instalado. Tests: runtime 58, build core 15, processor 7, API 7, guice 5,
+  separación entre catálogo e instalado. Tests: runtime 59, build core 15, processor 8, API 7, guice 5,
   harness 6, swing 8. Además, `examples/` con dos apps, un sub-plugin, una app con su
   propio injector y dos plugins que se prueban solos con el harness (8 tests de punta a punta).
 - **Referencias que el framework no ve:** un objeto que la app guarda después de sacarlo de una vista, o

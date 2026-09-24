@@ -28,7 +28,20 @@ final class MetadataJson {
             out.append("      \"roles\": ").append(array(e.roles())).append(",\n");
             out.append("      \"replaces\": ").append(array(e.replaces())).append(",\n");
             out.append("      \"needs\": ").append(array(e.needs())).append(",\n");
-            out.append("      \"lifecycle\": ").append(e.lifecycle()).append("\n");
+            out.append("      \"lifecycle\": ").append(e.lifecycle());
+            if (!e.answers().isEmpty()) {
+                out.append(",\n      \"answers\": {");
+                Iterator<java.util.Map.Entry<String, java.util.List<String>>> a = e.answers().entrySet().iterator();
+                while (a.hasNext()) {
+                    var entry = a.next();
+                    out.append("\n        ").append(quote(entry.getKey())).append(": ").append(array(entry.getValue()));
+                    if (a.hasNext()) {
+                        out.append(',');
+                    }
+                }
+                out.append("\n      }");
+            }
+            out.append("\n");
             out.append("    }");
             if (it.hasNext()) {
                 out.append(',');

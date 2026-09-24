@@ -133,7 +133,8 @@ public final class RoleProcessor extends AbstractProcessor {
 
         String name = binaryName(type);
         extensions.put(name, new ExtensionModel(name, List.copyOf(roles), replaces, needs,
-                implementsInterface(type, Contract.HAS_LIFECYCLE), hasPublicNoArgConstructor(type)));
+                implementsInterface(type, Contract.HAS_LIFECYCLE), hasPublicNoArgConstructor(type),
+                answers(type, roles)));
         originating.add(type);
     }
 
@@ -331,6 +332,46 @@ public final class RoleProcessor extends AbstractProcessor {
     }
 
     /** Reads {@code value()} of a {@code String[]} annotation (a single string is accepted too). */
+    /** Role → keys from the {@code @Answers} on {@code type} (repeated or not); role-less ones go to every role. */
+    private Map<String, List<String>> answers(TypeElement type, Set<String> roles) {
+        Map<String, Set<String>> byRole = new TreeMap<>();
+        List<AnnotationMirror> all = new ArrayList<>();
+        AnnotationMirror single = findAnnotation(type, Contract.ANSWERS);
+        if (single != null) {
+            all.add(single);
+        }
+        AnnotationMirror container = findAnnotation(type, Contract.ANSWERS_LIST);
+        if (container != null) {
+            container.getElementValues().forEach((method, value) -> {
+                if (value.getValue() instanceof List<?> list) {
+                    list.forEach(item -> all.add((AnnotationMirror) ((AnnotationValue) item).getValue()));
+                }
+            });
+        }
+        for (AnnotationMirror answers : all) {
+            Set<String> keys = new TreeSet<>();
+            String role = null;
+            for (var entry : answers.getElementValues().entrySet()) {
+                String method = entry.getKey().getSimpleName().toString();
+                if (method.equals("value")) {
+                    collect(entry.getValue(), keys);
+                } else if (method.equals("role") && entry.getValue().getValue() instanceof DeclaredType declared) {
+                    role = binaryName((TypeElement) declared.asElement());
+                }
+            }
+            if (role != null && !role.equals("java.lang.Object") && !roles.contains(role)) {
+                error(type, "@Answers names %s, which %s does not implement", role, type.getSimpleName());
+                continue;
+            }
+            for (String target : role == null || role.equals("java.lang.Object") ? roles : Set.of(role)) {
+                byRole.computeIfAbsent(target, r -> new TreeSet<>()).addAll(keys);
+            }
+        }
+        Map<String, List<String>> result = new TreeMap<>();
+        byRole.forEach((role, keys) -> result.put(role, List.copyOf(keys)));
+        return result;
+    }
+
     private static List<String> stringValues(Element element, String annotationName) {
         AnnotationMirror mirror = findAnnotation(element, annotationName);
         if (mirror == null) {

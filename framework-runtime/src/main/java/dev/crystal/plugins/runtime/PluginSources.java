@@ -133,9 +133,14 @@ public final class PluginSources {
             throw new IOException("Unknown plugin metadata format");
         }
         java.util.Set<String> implemented = new java.util.TreeSet<>();
+        Map<String, java.util.Set<String>> answers = new java.util.TreeMap<>();
         for (Object extension : list(root.get("extensions"))) {
             if (extension instanceof Map<?, ?> e) {
                 list(e.get("roles")).forEach(r -> implemented.add(String.valueOf(r)));
+                if (e.get("answers") instanceof Map<?, ?> byRole) {
+                    byRole.forEach((role, keys) -> list(keys).forEach(k -> answers
+                            .computeIfAbsent(String.valueOf(role), r -> new java.util.TreeSet<>()).add(String.valueOf(k))));
+                }
             }
         }
         List<String> defined = list(root.get("definesRoles")).stream().map(String::valueOf).toList();
@@ -145,7 +150,10 @@ public final class PluginSources {
                 dependencies.add(String.valueOf(d.get("id")));
             }
         }
-        return new dev.crystal.plugins.api.PluginDescription(List.copyOf(implemented), defined, dependencies);
+        Map<String, List<String>> keys = new java.util.TreeMap<>();
+        answers.forEach((role, values) -> keys.put(role, List.copyOf(values)));
+        return new dev.crystal.plugins.api.PluginDescription(List.copyOf(implemented), defined, dependencies, null,
+                keys);
     }
 
     private static List<?> list(Object value) {
@@ -160,7 +168,7 @@ public final class PluginSources {
                 if (entry.getName().equals(METADATA)) {
                     var d = description(zip);
                     return java.util.Optional.of(new dev.crystal.plugins.api.PluginDescription(d.implementsRoles(),
-                            d.definesRoles(), d.dependencies(), name));
+                            d.definesRoles(), d.dependencies(), name, d.answers()));
                 }
             }
         } catch (IOException e) {
