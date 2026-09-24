@@ -21,16 +21,38 @@ import dev.crystal.plugins.runtime.RoleInfo;
 public final class PluginTrees {
 
     /** What a tree node shows, and the plugin it is about (null for nodes about no single plugin). */
-    public record Node(String text, String pluginId, String tooltip, Icon icon) {
+    public record Node(String text, String pluginId, String tooltip, Icon icon, Label label) {
 
         public Node(String text, String pluginId, String tooltip) {
-            this(text, pluginId, tooltip, null);
+            this(text, pluginId, tooltip, null, null);
+        }
+
+        public Node(String text, String pluginId, String tooltip, Icon icon) {
+            this(text, pluginId, tooltip, icon, null);
+        }
+
+        /** This node with how the panel shows it: name first and bold, the rest smaller. */
+        public Node label(String prefix, String name, String detail, Flag flag) {
+            return new Node(text, pluginId, tooltip, icon, new Label(prefix, name, detail, flag));
         }
 
         @Override
         public String toString() {
             return text;
         }
+    }
+
+    /** How a node is shown: a muted {@code prefix}, the {@code name} in bold, a small {@code detail}, a {@code flag}. */
+    public record Label(String prefix, String name, String detail, Flag flag) {
+    }
+
+    /** A state worth noticing, shown small and colored after the name. */
+    public record Flag(String text, Kind kind) {
+        public enum Kind { IN_USE, PENDING, FAILED, HIDDEN, NOT_INSTALLED }
+    }
+
+    private static Flag flag(String text, Flag.Kind kind) {
+        return new Flag(text, kind);
     }
 
     private PluginTrees() {
@@ -66,19 +88,28 @@ public final class PluginTrees {
             DefaultMutableTreeNode plugin = new DefaultMutableTreeNode(new Node(text.toString(), info.id(),
                     tooltip.isEmpty() ? null : tooltip.toString().strip(),
                     PluginIcons.plugin(!info.dependencies().isEmpty(), info.status() == PluginInfo.Status.FAILED,
-                            pending.contains(info.id()), origin)));
+                            pending.contains(info.id()), origin))
+                    .label(null, info.id(), info.version(),
+                            info.status() == PluginInfo.Status.FAILED ? flag("failed", Flag.Kind.FAILED)
+                                    : info.status() != PluginInfo.Status.STARTED
+                                    ? flag(info.status().name().toLowerCase(), Flag.Kind.PENDING)
+                                    : pending.contains(info.id()) ? flag("removed on next start", Flag.Kind.PENDING)
+                                    : !heldBy.isEmpty() ? flag("in use", Flag.Kind.IN_USE) : null));
             for (PluginInfo.ExtensionInfo extension : info.extensions()) {
                 String replaces = extension.replaces().isEmpty() ? ""
                         : " (replaces " + String.join(", ", extension.replaces()) + ")";
                 DefaultMutableTreeNode node = new DefaultMutableTreeNode(new Node(simple(extension.className())
-                        + replaces, info.id(), extension.className(), PluginIcons.extension()));
+                        + replaces, info.id(), extension.className(), PluginIcons.extension())
+                        .label(null, simple(extension.className()), extension.replaces().isEmpty() ? null
+                                : "replaces " + String.join(", ", extension.replaces()), null));
                 extension.roles().forEach(role -> node.add(new DefaultMutableTreeNode(
-                        new Node("implements " + simple(role), info.id(), role, PluginIcons.implementsRole()))));
+                        new Node("implements " + simple(role), info.id(), role, PluginIcons.implementsRole())
+                                .label("implements", simple(role), null, null))));
                 plugin.add(node);
             }
             for (String role : info.definesRoles()) {
                 plugin.add(new DefaultMutableTreeNode(new Node("defines " + simple(role), info.id(), role,
-                        PluginIcons.definesRole())));
+                        PluginIcons.definesRole()).label("defines", simple(role), null, null)));
             }
             root.add(plugin);
         }
@@ -102,15 +133,19 @@ public final class PluginTrees {
             String text = a.id() + " " + a.version() + (offer.origin().isBlank() ? "" : " — " + offer.origin());
             boolean sub = offer.description().map(d -> !d.dependencies().isEmpty()).orElse(false);
             DefaultMutableTreeNode plugin = new DefaultMutableTreeNode(new Node(text, a.id(), offer.origin(),
-                    PluginIcons.plugin(sub, false, false, offer.kind())));
+                    PluginIcons.plugin(sub, false, false, offer.kind()))
+                    .label(null, a.id(), a.version() + (offer.origin().isBlank() ? "" : " · " + offer.origin()), null));
             offer.description().ifPresent(d -> {
                 d.implementsRoles().forEach(role -> plugin.add(new DefaultMutableTreeNode(
-                        new Node("implements " + simple(role), a.id(), role, PluginIcons.implementsRole()))));
+                        new Node("implements " + simple(role), a.id(), role, PluginIcons.implementsRole())
+                                .label("implements", simple(role), null, null))));
                 d.definesRoles().forEach(role -> plugin.add(new DefaultMutableTreeNode(
-                        new Node("defines " + simple(role), a.id(), role, PluginIcons.definesRole()))));
+                        new Node("defines " + simple(role), a.id(), role, PluginIcons.definesRole())
+                                .label("defines", simple(role), null, null))));
                 if (!d.dependencies().isEmpty()) {
                     plugin.add(new DefaultMutableTreeNode(new Node("requires " + String.join(", ", d.dependencies()),
-                            a.id(), null, PluginIcons.requires())));
+                            a.id(), null, PluginIcons.requires())
+                            .label("requires", String.join(", ", d.dependencies()), null, null)));
                 }
             });
             root.add(plugin);
@@ -132,7 +167,9 @@ public final class PluginTrees {
         for (RoleInfo role : plugins.roleTree()) {
             String definedBy = role.definedBy().map(id -> " (defined by " + id + ")").orElse("");
             DefaultMutableTreeNode node = new DefaultMutableTreeNode(new Node(simple(role.role()) + definedBy,
-                    role.definedBy().orElse(null), role.role(), PluginIcons.role(role.definedBy().isPresent())));
+                    role.definedBy().orElse(null), role.role(), PluginIcons.role(role.definedBy().isPresent()))
+                    .label(null, simple(role.role()), role.definedBy().map(id -> "defined by " + id).orElse(null),
+                            null));
             for (RoleInfo.Implementation implementation : role.implementations()) {
                 node.add(new DefaultMutableTreeNode(new Node(simple(implementation.className()) + " — "
                         + implementation.pluginId() + (implementation.visible() ? "" : " (hidden)"),
@@ -141,12 +178,16 @@ public final class PluginTrees {
                                 PluginService.APPLICATION.equals(implementation.pluginId())
                                         ? PluginIcons.Origin.APPLICATION
                                         : plugins.isBundled(implementation.pluginId()) ? PluginIcons.Origin.BUNDLED
-                                        : PluginIcons.Origin.CATALOG))));
+                                        : PluginIcons.Origin.CATALOG))
+                        .label(null, simple(implementation.className()), implementation.pluginId(),
+                                implementation.visible() ? null : flag("hidden", Flag.Kind.HIDDEN))));
             }
             for (Offer offer : offers) {
                 if (offer.description().map(d -> d.implementsRoles().contains(role.role())).orElse(false)) {
                     node.add(new DefaultMutableTreeNode(new Node(offer.artifact().id() + " (not installed)",
-                            offer.artifact().id(), offer.origin(), PluginIcons.implementation(true, false, offer.kind()))));
+                            offer.artifact().id(), offer.origin(), PluginIcons.implementation(true, false, offer.kind()))
+                            .label(null, offer.artifact().id(), offer.artifact().version(),
+                                    flag("not installed", Flag.Kind.NOT_INSTALLED))));
                 }
             }
             root.add(node);
@@ -159,10 +200,12 @@ public final class PluginTrees {
             for (String role : offer.description().map(PluginDescription::implementsRoles).orElse(List.of())) {
                 if (!shown.contains(role)) {
                     extra.computeIfAbsent(role, r -> new DefaultMutableTreeNode(new Node(simple(r), null, r,
-                                    PluginIcons.role(false))))
+                                    PluginIcons.role(false)).label(null, simple(r), null, null)))
                             .add(new DefaultMutableTreeNode(new Node(offer.artifact().id() + " (not installed)",
                                     offer.artifact().id(), offer.origin(),
-                                    PluginIcons.implementation(true, false, offer.kind()))));
+                                    PluginIcons.implementation(true, false, offer.kind()))
+                                    .label(null, offer.artifact().id(), offer.artifact().version(),
+                                            flag("not installed", Flag.Kind.NOT_INSTALLED))));
                 }
             }
         }

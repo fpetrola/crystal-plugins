@@ -390,6 +390,36 @@ public class PluginsPanel extends JPanel {
         }
     }
 
+    /** Name first and bold; prefix, detail and flag smaller and muted (or colored), so the name stands out. */
+    static String html(PluginTrees.Label label, boolean selected) {
+        // Mid grey reads on light and dark themes, selected or not.
+        String muted = "#888888";
+        StringBuilder out = new StringBuilder("<html>");
+        if (label.prefix() != null) {
+            out.append("<font color='").append(muted).append("'>").append(escape(label.prefix())).append("</font> ");
+        }
+        out.append("<b>").append(escape(label.name())).append("</b>");
+        if (label.detail() != null && !label.detail().isBlank()) {
+            out.append(" <font size='-1' color='").append(muted).append("'>(").append(escape(label.detail()))
+                    .append(")</font>");
+        }
+        if (label.flag() != null) {
+            String color = switch (label.flag().kind()) {
+                case IN_USE -> "#2f6fd0";
+                case PENDING -> "#c77800";
+                case FAILED -> "#d03030";
+                case HIDDEN, NOT_INSTALLED -> "#999999";
+            };
+            out.append(" <font size='-1' color='").append(color).append("'><i>").append(escape(label.flag().text()))
+                    .append("</i></font>");
+        }
+        return out.append("</html>").toString();
+    }
+
+    private static String escape(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
     private static JTree tree() {
         JTree tree = new JTree(new DefaultMutableTreeNode()) {
             @Override
@@ -408,9 +438,13 @@ public class PluginsPanel extends JPanel {
                                                                    boolean expanded, boolean leaf, int row,
                                                                    boolean focus) {
                 super.getTreeCellRendererComponent(t, value, selected, expanded, leaf, row, focus);
-                if (((DefaultMutableTreeNode) value).getUserObject() instanceof PluginTrees.Node node
-                        && node.icon() != null) {
-                    setIcon(node.icon());
+                if (((DefaultMutableTreeNode) value).getUserObject() instanceof PluginTrees.Node node) {
+                    if (node.icon() != null) {
+                        setIcon(node.icon());
+                    }
+                    if (node.label() != null) {
+                        setText(html(node.label(), selected));
+                    }
                 }
                 return this;
             }
