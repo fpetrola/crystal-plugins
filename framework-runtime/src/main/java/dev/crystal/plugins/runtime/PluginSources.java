@@ -134,12 +134,20 @@ public final class PluginSources {
         }
         java.util.Set<String> implemented = new java.util.TreeSet<>();
         Map<String, java.util.Set<String>> answers = new java.util.TreeMap<>();
+        List<dev.crystal.plugins.api.Offer> offers = new ArrayList<>();
         for (Object extension : list(root.get("extensions"))) {
             if (extension instanceof Map<?, ?> e) {
                 list(e.get("roles")).forEach(r -> implemented.add(String.valueOf(r)));
                 if (e.get("answers") instanceof Map<?, ?> byRole) {
                     byRole.forEach((role, keys) -> list(keys).forEach(k -> answers
                             .computeIfAbsent(String.valueOf(role), r -> new java.util.TreeSet<>()).add(String.valueOf(k))));
+                }
+                String className = String.valueOf(e.get("class"));
+                for (Object offer : list(e.get("offers"))) {
+                    if (offer instanceof Map<?, ?> o) {
+                        offers.add(new dev.crystal.plugins.api.Offer(className, String.valueOf(o.get("text")),
+                                o.get("icon") == null ? "" : String.valueOf(o.get("icon"))));
+                    }
                 }
             }
         }
@@ -153,7 +161,7 @@ public final class PluginSources {
         Map<String, List<String>> keys = new java.util.TreeMap<>();
         answers.forEach((role, values) -> keys.put(role, List.copyOf(values)));
         return new dev.crystal.plugins.api.PluginDescription(List.copyOf(implemented), defined, dependencies, null,
-                keys);
+                keys, offers);
     }
 
     private static List<?> list(Object value) {
@@ -168,7 +176,7 @@ public final class PluginSources {
                 if (entry.getName().equals(METADATA)) {
                     var d = description(zip);
                     return java.util.Optional.of(new dev.crystal.plugins.api.PluginDescription(d.implementsRoles(),
-                            d.definesRoles(), d.dependencies(), name, d.answers()));
+                            d.definesRoles(), d.dependencies(), name, d.answers(), d.offers()));
                 }
             }
         } catch (IOException e) {

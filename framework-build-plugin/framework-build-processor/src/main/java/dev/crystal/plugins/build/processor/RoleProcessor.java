@@ -134,7 +134,7 @@ public final class RoleProcessor extends AbstractProcessor {
         String name = binaryName(type);
         extensions.put(name, new ExtensionModel(name, List.copyOf(roles), replaces, needs,
                 implementsInterface(type, Contract.HAS_LIFECYCLE), hasPublicNoArgConstructor(type),
-                answers(type, roles)));
+                answers(type, roles), offers(type)));
         originating.add(type);
     }
 
@@ -369,6 +369,38 @@ public final class RoleProcessor extends AbstractProcessor {
         }
         Map<String, List<String>> result = new TreeMap<>();
         byRole.forEach((role, keys) -> result.put(role, List.copyOf(keys)));
+        return result;
+    }
+
+    /** Text+icon from the {@code @Offers} on {@code type} (repeated or not), in declaration order. */
+    private List<OfferModel> offers(TypeElement type) {
+        List<AnnotationMirror> all = new ArrayList<>();
+        AnnotationMirror single = findAnnotation(type, Contract.OFFERS);
+        if (single != null) {
+            all.add(single);
+        }
+        AnnotationMirror container = findAnnotation(type, Contract.OFFERS_LIST);
+        if (container != null) {
+            container.getElementValues().forEach((method, value) -> {
+                if (value.getValue() instanceof List<?> list) {
+                    list.forEach(item -> all.add((AnnotationMirror) ((AnnotationValue) item).getValue()));
+                }
+            });
+        }
+        List<OfferModel> result = new ArrayList<>();
+        for (AnnotationMirror offers : all) {
+            String text = null;
+            String icon = "";
+            for (var entry : offers.getElementValues().entrySet()) {
+                String method = entry.getKey().getSimpleName().toString();
+                if (method.equals("value")) {
+                    text = String.valueOf(entry.getValue().getValue());
+                } else if (method.equals("icon")) {
+                    icon = String.valueOf(entry.getValue().getValue());
+                }
+            }
+            result.add(new OfferModel(text, icon));
+        }
         return result;
     }
 

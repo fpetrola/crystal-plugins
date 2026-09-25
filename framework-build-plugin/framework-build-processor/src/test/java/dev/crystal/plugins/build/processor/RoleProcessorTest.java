@@ -276,6 +276,22 @@ class RoleProcessorTest {
     }
 
     @Test
+    void offersGoIntoTheMetadataPerExtension() throws IOException {
+        Result result = compile(Map.of(
+                "app.Exporter", ROLE,
+                "p.Csv", """
+                        package p;
+                        @dev.crystal.plugins.api.Offers("Browse the game catalogue")
+                        @dev.crystal.plugins.api.Offers(value = "Export as CSV", icon = "csv")
+                        public class Csv implements app.Exporter { public String format() { return "csv"; } }
+                        """));
+        assertTrue(result.errors().isEmpty(), result.errors().toString());
+        String json = Files.readString(out.resolve(METADATA)).replaceAll("\\s+", "");
+        assertTrue(json.contains("\"offers\":[{\"text\":\"Browsethegamecatalogue\",\"icon\":\"\"},"
+                + "{\"text\":\"ExportasCSV\",\"icon\":\"csv\"}]"), json);
+    }
+
+    @Test
     void anIncrementalCompilationKeepsWhatItDidNotRecompile() throws IOException {
         compile(Map.of(
                 "dev.Equipment", "package dev; @dev.crystal.plugins.api.RoleInterface public interface Equipment { }",

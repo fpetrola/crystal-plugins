@@ -41,6 +41,19 @@ final class MetadataJson {
                 }
                 out.append("\n      }");
             }
+            if (!e.offers().isEmpty()) {
+                out.append(",\n      \"offers\": [");
+                Iterator<OfferModel> o = e.offers().iterator();
+                while (o.hasNext()) {
+                    OfferModel offer = o.next();
+                    out.append("\n        {\"text\": ").append(quote(offer.text())).append(", \"icon\": ")
+                            .append(quote(offer.icon())).append('}');
+                    if (o.hasNext()) {
+                        out.append(',');
+                    }
+                }
+                out.append("\n      ]");
+            }
             out.append("\n");
             out.append("    }");
             if (it.hasNext()) {

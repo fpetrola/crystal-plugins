@@ -13,6 +13,8 @@ public final class Contract {
     public static final String NEEDS = "dev.crystal.plugins.api.Needs";
     public static final String ANSWERS = "dev.crystal.plugins.api.Answers";
     public static final String ANSWERS_LIST = "dev.crystal.plugins.api.Answers.List";
+    public static final String OFFERS = "dev.crystal.plugins.api.Offers";
+    public static final String OFFERS_LIST = "dev.crystal.plugins.api.Offers.List";
     public static final String HAS_LIFECYCLE = "dev.crystal.plugins.api.HasLifecycle";
 
     public static final String JAKARTA_INJECT = "jakarta.inject.Inject";

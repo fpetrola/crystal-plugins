@@ -11,15 +11,22 @@ import java.util.List;
  * @param dependencies    ids of the plugins it requires
  * @param answers         role → the keys its extensions answer for it ({@link Answers})
  * @param name            its name for people ({@code Plugin-Name} in the manifest), or null: show the id
+ * @param offers          the actions its extensions offer ({@link Offers})
  */
 public record PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies,
-                                String name, java.util.Map<String, List<String>> answers) {
+                                String name, java.util.Map<String, List<String>> answers, List<Offer> offers) {
 
     public PluginDescription {
         implementsRoles = List.copyOf(implementsRoles);
         definesRoles = List.copyOf(definesRoles);
         dependencies = List.copyOf(dependencies);
         answers = java.util.Map.copyOf(answers);
+        offers = List.copyOf(offers);
+    }
+
+    public PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies,
+                             String name, java.util.Map<String, List<String>> answers) {
+        this(implementsRoles, definesRoles, dependencies, name, answers, List.of());
     }
 
     public PluginDescription(List<String> implementsRoles, List<String> definesRoles, List<String> dependencies,

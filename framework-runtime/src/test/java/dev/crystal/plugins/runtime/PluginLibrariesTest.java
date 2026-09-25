@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -133,6 +134,32 @@ class PluginLibrariesTest {
             plugins.install("tape");
             assertEquals(List.of("tape"), plugins.answering(role, "tzx"));
             assertEquals(List.of(), plugins.availableAnswering(role, "tzx"));
+        }
+    }
+
+    @Test
+    void whatIsOfferedIsFoundInstalledOrNot() throws Exception {
+        PluginJars.plugin("catalogue", "1.0.0").withProcessor().source("acme.catalogue.Exporter", """
+                package acme.catalogue;
+                import dev.crystal.plugins.runtime.fixtures.ReportExporter;
+                import java.util.List;
+                @dev.crystal.plugins.api.Offers("Browse the game catalogue")
+                public class Exporter implements ReportExporter {
+                    public String format() { return "catalogue"; }
+                    public String export(List<String> rows) { return ""; }
+                }
+                """).buildInto(repo);
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo))
+                .cacheDirectory(cache).build()) {
+            plugins.start();
+            assertEquals(List.of("Browse the game catalogue"), plugins.availableOffering().values().stream()
+                    .flatMap(List::stream).map(dev.crystal.plugins.api.Offer::text).toList(),
+                    "not installed: found through the catalog's description");
+            assertEquals(List.of(), plugins.offering(), "nothing installed offers it yet");
+            plugins.install("catalogue");
+            assertEquals(List.of("Browse the game catalogue"),
+                    plugins.offering().stream().map(dev.crystal.plugins.api.Offer::text).toList());
+            assertEquals(Map.of(), plugins.availableOffering());
         }
     }
 }

@@ -356,6 +356,36 @@ public final class PluginService implements AutoCloseable {
                 .toList();
     }
 
+    /** The actions offered by the loaded plugins' extensions (see {@code @Offers}), read from their metadata. */
+    public List<dev.crystal.plugins.api.Offer> offering() {
+        List<dev.crystal.plugins.api.Offer> offers = new ArrayList<>();
+        for (PluginWrapper plugin : manager.getPlugins()) {
+            try (java.io.InputStream in = Files.newInputStream(plugin.getPluginPath())) {
+                PluginSources.describeJar(in).ifPresent(d -> offers.addAll(d.offers()));
+            } catch (IOException e) {
+                log.debug("Cannot read {}", plugin.getPluginPath(), e);
+            }
+        }
+        return offers;
+    }
+
+    /**
+     * What the catalog offers, not installed, grouped by the artifact that brings it: whom to install for an
+     * offer. Uses {@link #describe}, so it needs a catalog that describes its plugins (local ones do; a remote
+     * one publishes each plugin's metadata). May use the network.
+     */
+    public Map<PluginArtifact, List<dev.crystal.plugins.api.Offer>> availableOffering() {
+        Map<PluginArtifact, List<dev.crystal.plugins.api.Offer>> result = new LinkedHashMap<>();
+        for (PluginArtifact artifact : available()) {
+            List<dev.crystal.plugins.api.Offer> offers = describe(artifact)
+                    .map(dev.crystal.plugins.api.PluginDescription::offers).orElse(List.of());
+            if (!offers.isEmpty()) {
+                result.put(artifact, offers);
+            }
+        }
+        return result;
+    }
+
     /** Whether {@code artifact} is one the application carries inside itself (its default plugins). */
     public boolean isBundled(PluginArtifact artifact) {
         return installer.isBundled(artifact);
