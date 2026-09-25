@@ -232,12 +232,13 @@ public class PluginsPanel extends JPanel {
 
     /** The catalog's offer, each with its origin and description (all may use the network). */
     private List<PluginTrees.Offer> offers() {
-        return plugins.available().stream()
-                .map(a -> {
+        return plugins.describeAll(plugins.available()).entrySet().stream()
+                .map(e -> {
+                    PluginArtifact a = e.getKey();
                     String origin = plugins.origin(a);
                     PluginIcons.Origin kind = plugins.isBundled(a) ? PluginIcons.Origin.BUNDLED
                             : origin.startsWith("directory(") ? PluginIcons.Origin.LOCAL : PluginIcons.Origin.CATALOG;
-                    return new PluginTrees.Offer(a, origin, plugins.describe(a), kind);
+                    return new PluginTrees.Offer(a, origin, e.getValue(), kind);
                 }).toList();
     }
 

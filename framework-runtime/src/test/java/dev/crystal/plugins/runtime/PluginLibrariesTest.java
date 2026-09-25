@@ -156,6 +156,8 @@ class PluginLibrariesTest {
                     .flatMap(List::stream).map(dev.crystal.plugins.api.Offer::text).toList(),
                     "not installed: found through the catalog's description");
             assertEquals(List.of(), plugins.offering(), "nothing installed offers it yet");
+            assertEquals(plugins.available(), List.copyOf(plugins.describeAll(plugins.available()).keySet()),
+                    "every artifact described, in the order asked");
             plugins.install("catalogue");
             assertEquals(List.of("Browse the game catalogue"),
                     plugins.offering().stream().map(dev.crystal.plugins.api.Offer::text).toList());

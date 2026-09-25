@@ -351,9 +351,37 @@ public final class PluginService implements AutoCloseable {
      * plugins (local ones do; a remote one publishes each plugin's metadata). May use the network.
      */
     public List<PluginArtifact> availableAnswering(String role, String key) {
-        return available().stream()
-                .filter(a -> describe(a).map(d -> d.answers(role, key)).orElse(false))
+        return describeAll(available()).entrySet().stream()
+                .filter(e -> e.getValue().map(d -> d.answers(role, key)).orElse(false))
+                .map(Map.Entry::getKey)
                 .toList();
+    }
+
+    /**
+     * The descriptions of {@code artifacts}, all asked for at once: describing a catalog one plugin at a time waits
+     * for each answer in turn, and a remote catalog answers each over the network. In the order given.
+     */
+    public Map<PluginArtifact, java.util.Optional<dev.crystal.plugins.api.PluginDescription>> describeAll(
+            List<PluginArtifact> artifacts) {
+        Map<PluginArtifact, java.util.concurrent.Future<java.util.Optional<dev.crystal.plugins.api.PluginDescription>>> asked =
+                new LinkedHashMap<>();
+        try (java.util.concurrent.ExecutorService each = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            for (PluginArtifact artifact : artifacts) {
+                asked.put(artifact, each.submit(() -> describe(artifact)));
+            }
+        }
+        Map<PluginArtifact, java.util.Optional<dev.crystal.plugins.api.PluginDescription>> described = new LinkedHashMap<>();
+        asked.forEach((artifact, answer) -> {
+            try {
+                described.put(artifact, answer.get());
+            } catch (java.util.concurrent.ExecutionException | InterruptedException e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                described.put(artifact, java.util.Optional.empty());
+            }
+        });
+        return described;
     }
 
     /** The actions offered by the loaded plugins' extensions (see {@code @Offers}), read from their metadata. */
@@ -376,13 +404,13 @@ public final class PluginService implements AutoCloseable {
      */
     public Map<PluginArtifact, List<dev.crystal.plugins.api.Offer>> availableOffering() {
         Map<PluginArtifact, List<dev.crystal.plugins.api.Offer>> result = new LinkedHashMap<>();
-        for (PluginArtifact artifact : available()) {
-            List<dev.crystal.plugins.api.Offer> offers = describe(artifact)
+        describeAll(available()).forEach((artifact, description) -> {
+            List<dev.crystal.plugins.api.Offer> offers = description
                     .map(dev.crystal.plugins.api.PluginDescription::offers).orElse(List.of());
             if (!offers.isEmpty()) {
                 result.put(artifact, offers);
             }
-        }
+        });
         return result;
     }
 
