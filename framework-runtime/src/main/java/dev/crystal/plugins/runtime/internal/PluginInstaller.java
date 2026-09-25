@@ -311,6 +311,18 @@ public final class PluginInstaller {
 
     /** See {@link PluginSource#describe}; empty without a source. */
     public java.util.Optional<dev.crystal.plugins.api.PluginDescription> describe(PluginArtifact artifact) {
+        // A jar already in the cache says it itself: no need to ask the source, which may be the network.
+        if (cache.contains(artifact)) {
+            try (java.io.InputStream in = java.nio.file.Files.newInputStream(cache.path(artifact))) {
+                java.util.Optional<dev.crystal.plugins.api.PluginDescription> cached =
+                        dev.crystal.plugins.runtime.PluginSources.describeJar(in);
+                if (cached.isPresent()) {
+                    return cached;
+                }
+            } catch (java.io.IOException unreadable) {
+                // fall back to the source
+            }
+        }
         return source == null ? java.util.Optional.empty() : source.describe(artifact);
     }
 

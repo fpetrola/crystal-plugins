@@ -170,7 +170,7 @@ public final class PluginSources {
     }
 
     /** The description inside a plugin jar's bytes; empty if it has no (readable) metadata. */
-    static java.util.Optional<dev.crystal.plugins.api.PluginDescription> describeJar(InputStream jar) {
+    public static java.util.Optional<dev.crystal.plugins.api.PluginDescription> describeJar(InputStream jar) {
         try (java.util.jar.JarInputStream zip = new java.util.jar.JarInputStream(jar)) {
             String name = zip.getManifest() == null ? null : zip.getManifest().getMainAttributes().getValue("Plugin-Name");
             for (java.util.zip.ZipEntry entry; (entry = zip.getNextEntry()) != null; ) {
