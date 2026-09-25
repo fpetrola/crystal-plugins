@@ -146,7 +146,8 @@ public final class PluginSources {
                 for (Object offer : list(e.get("offers"))) {
                     if (offer instanceof Map<?, ?> o) {
                         offers.add(new dev.crystal.plugins.api.Offer(className, String.valueOf(o.get("text")),
-                                o.get("icon") == null ? "" : String.valueOf(o.get("icon"))));
+                                o.get("icon") == null ? "" : String.valueOf(o.get("icon")),
+                                list(e.get("roles")).stream().map(String::valueOf).toList()));
                     }
                 }
             }

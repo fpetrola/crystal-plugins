@@ -160,6 +160,8 @@ class PluginLibrariesTest {
             assertEquals(List.of("Browse the game catalogue"),
                     plugins.offering().stream().map(dev.crystal.plugins.api.Offer::text).toList());
             assertEquals(Map.of(), plugins.availableOffering());
+            org.junit.jupiter.api.Assertions.assertFalse(plugins.offering().get(0).roles().isEmpty(),
+                    "an offer says which roles its extension implements");
         }
     }
 }
