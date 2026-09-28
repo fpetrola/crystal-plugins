@@ -58,6 +58,14 @@ public class PackagePluginMojo extends AbstractMojo {
     @Parameter(property = "crystal.skip", defaultValue = "false")
     private boolean skip;
 
+    /**
+     * Artifacts of the application's family that the application does not supply, as {@code groupId:artifactId}
+     * separated by commas: carried in {@code lib/} like a third party's library, and so is what they bring that is
+     * not the family's.
+     */
+    @Parameter(property = "crystal.carry", defaultValue = "")
+    private String carry;
+
     @Override
     public void execute() throws MojoExecutionException {
         if (skip) {
@@ -76,7 +84,7 @@ public class PackagePluginMojo extends AbstractMojo {
                         // The application's family (same groupId or one under it) is supplied by the application,
                         // as if provided: shared API, not a library to carry nor to warn about.
                         Artifact.SCOPE_PROVIDED.equals(a.getScope()) || Artifact.SCOPE_SYSTEM.equals(a.getScope())
-                                || family(a.getGroupId()),
+                                || family(a.getGroupId() + ":" + a.getArtifactId()),
                         libraries && library(a)))
                 .toList();
         PluginBuildRequest request = new PluginBuildRequest(new File(project.getBuild().getOutputDirectory()).toPath(),
@@ -120,7 +128,8 @@ public class PackagePluginMojo extends AbstractMojo {
     /**
      * Whether {@code a} is a third-party library the plugin carries: needed at run time ({@code compile} or
      * {@code runtime}) and not part of the application's family: not of the plugin's own groupId (or one under it,
-     * where the application's modules live), not the framework, and not brought in by any of those. What the
+     * where the application's modules live), not the framework, and not brought in by any of those - unless it
+     * is one of {@link #carry}. What the
      * application family brings, the application has; the runtime also skips a carried library the application
      * turns out to have.
      */
@@ -128,13 +137,13 @@ public class PackagePluginMojo extends AbstractMojo {
         if (!Artifact.SCOPE_COMPILE.equals(a.getScope()) && !Artifact.SCOPE_RUNTIME.equals(a.getScope())) {
             return false;
         }
-        if (!"jar".equals(a.getType()) || family(a.getGroupId())) {
+        if (!"jar".equals(a.getType()) || family(a.getGroupId() + ":" + a.getArtifactId())) {
             return false;
         }
         List<String> trail = a.getDependencyTrail();
         if (trail != null) {
             for (int i = 1; i < trail.size() - 1; i++) { // between the project and the artifact itself
-                if (family(trail.get(i).substring(0, trail.get(i).indexOf(':')))) {
+                if (family(trail.get(i))) {
                     return false;
                 }
             }
@@ -142,10 +151,14 @@ public class PackagePluginMojo extends AbstractMojo {
         return true;
     }
 
-    private boolean family(String groupId) {
+    /** Whether {@code groupId:artifactId[:...]} is the application's to supply. */
+    private boolean family(String coordinates) {
+        String[] said = coordinates.split(":");
+        String groupId = said[0];
         String own = project.getGroupId();
-        return groupId.equals(own) || groupId.startsWith(own + ".") || groupId.equals(FRAMEWORK_GROUP)
+        boolean family = groupId.equals(own) || groupId.startsWith(own + ".") || groupId.equals(FRAMEWORK_GROUP)
                 || groupId.startsWith(FRAMEWORK_GROUP + ".");
+        return family && !List.of(carry.split(" *, *")).contains(groupId + ":" + said[1]);
     }
 
     /**
