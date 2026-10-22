@@ -121,18 +121,19 @@ public final class RoleProcessor extends AbstractProcessor {
         Set<String> roles = rolesOf(type);
         List<String> replaces = stringValues(type, Contract.REPLACES);
         List<String> needs = stringValues(type, Contract.NEEDS);
+        List<String> onlyWith = stringValues(type, Contract.ONLY_WITH);
         String notAnExtension = roles.isEmpty() ? "it implements no @RoleInterface" : whyNotAnExtension(type, roles);
 
         if (notAnExtension != null) {
-            if (!replaces.isEmpty() || !needs.isEmpty()) {
-                error(type, "@Replaces/@Needs only apply to extensions, and %s is not one: %s",
+            if (!replaces.isEmpty() || !needs.isEmpty() || !onlyWith.isEmpty()) {
+                error(type, "@Replaces/@Needs/@OnlyWith only apply to extensions, and %s is not one: %s",
                         type.getSimpleName(), notAnExtension);
             }
             return;
         }
 
         String name = binaryName(type);
-        extensions.put(name, new ExtensionModel(name, List.copyOf(roles), replaces, needs,
+        extensions.put(name, new ExtensionModel(name, List.copyOf(roles), replaces, needs, onlyWith,
                 implementsInterface(type, Contract.HAS_LIFECYCLE), hasPublicNoArgConstructor(type),
                 answers(type, roles), offers(type)));
         originating.add(type);

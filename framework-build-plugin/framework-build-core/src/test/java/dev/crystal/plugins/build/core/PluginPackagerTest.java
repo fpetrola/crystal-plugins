@@ -162,6 +162,53 @@ class PluginPackagerTest {
     }
 
     @Test
+    void whatOnlyAnExtensionIsWithIsOptional() throws IOException {
+        Path jar = buildPlugin(Map.of(
+                "acme.tsv.TabExporter", """
+                        package acme.tsv;
+                        @dev.crystal.plugins.api.OnlyWith({"multi", "ghost"})
+                        public class TabExporter implements app.Exporter {
+                            public String format() { return new Tab().separator(); }
+                            static class Tab implements acme.multi.Dialect { public String separator() { return "\\t"; } }
+                        }
+                        """,
+                "acme.tsv.TsvExporter", """
+                        package acme.tsv;
+                        public class TsvExporter implements app.Exporter { public String format() { return "tsv"; } }
+                        """), true);
+
+        PackagingResult result = PluginPackager.finish(request(jar, "1.0.0"));
+
+        assertEquals(List.of(
+                new PluginDependency("ghost", null, Source.ONLY_WITH, List.of(), true),
+                new PluginDependency("multi", "1.4.2", Source.BYTECODE, List.of("acme.multi.Dialect"), true)),
+                result.dependencies(), "the plugin works without them: only TabExporter needs them");
+        try (JarFile file = new JarFile(jar.toFile())) {
+            assertEquals("ghost?, multi?@1.4.2", file.getManifest().getMainAttributes().getValue("Plugin-Dependencies"));
+        }
+        assertTrue(PluginJarFinisher.read(jar, PluginPackager.METADATA).replaceAll("\\s+", "").contains(
+                "{\"id\":\"multi\",\"version\":\"1.4.2\",\"source\":\"bytecode\",\"optional\":true,"
+                        + "\"types\":[\"acme.multi.Dialect\"]}"));
+    }
+
+    @Test
+    void anotherClassReachingWhatAnExtensionIsOnlyWithFailsTheBuild() {
+        Path jar = buildPlugin(Map.of(
+                "acme.tsv.TabExporter", """
+                        package acme.tsv;
+                        @dev.crystal.plugins.api.OnlyWith("multi")
+                        public class TabExporter implements app.Exporter { public String format() { return Tabs.TAB.separator(); } }
+                        """,
+                "acme.tsv.Tabs", """
+                        package acme.tsv;
+                        public final class Tabs { public static final acme.multi.Dialect TAB = () -> "\\t"; }
+                        """), true);
+
+        BuildException thrown = assertThrows(BuildException.class, () -> PluginPackager.finish(request(jar, "1.0.0")));
+        assertTrue(thrown.getMessage().contains("[acme.tsv.Tabs] reference types of 'multi'"), thrown.getMessage());
+    }
+
+    @Test
     void classesTheProcessorDidNotSeeFailTheBuild() {
         Path jar = buildPlugin(Map.of("acme.tsv.TsvExporter", """
                 package acme.tsv;

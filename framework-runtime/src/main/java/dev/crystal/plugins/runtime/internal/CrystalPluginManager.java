@@ -91,6 +91,62 @@ public final class CrystalPluginManager extends DefaultPluginManager {
     }
 
     /**
+     * The loaded plugins with an optional dependency on any of {@code pluginIds}, and the plugins depending on those,
+     * leaves first: what they offer changes when one of {@code pluginIds} comes or goes ({@code @OnlyWith}).
+     */
+    public List<String> optionalDependents(java.util.Collection<String> pluginIds) {
+        Set<String> order = new java.util.LinkedHashSet<>();
+        for (PluginWrapper plugin : getPlugins()) {
+            if (!pluginIds.contains(plugin.getPluginId()) && plugin.getDescriptor().getDependencies().stream()
+                    .anyMatch(dependency -> dependency.isOptional() && pluginIds.contains(dependency.getPluginId()))) {
+                collectDependents(plugin.getPluginId(), order);
+            }
+        }
+        order.removeAll(pluginIds);
+        return List.copyOf(order);
+    }
+
+    /** The plugin's extensions, without those {@code @OnlyWith} a plugin that is not loaded. */
+    @Override
+    public Set<String> getExtensionClassNames(String pluginId) {
+        Set<String> names = new java.util.TreeSet<>(super.getExtensionClassNames(pluginId));
+        PluginWrapper plugin = getPlugin(pluginId);
+        if (plugin != null) {
+            onlyWith(plugin).forEach((extension, needed) -> {
+                List<String> absent = needed.stream().filter(id -> getPlugin(id) == null).toList();
+                if (!absent.isEmpty() && names.remove(extension)) {
+                    log.info("Plugin '{}': {} is left out while {} is not installed", pluginId, extension, absent);
+                }
+            });
+        }
+        return names;
+    }
+
+    /** Each extension of the plugin that is {@code @OnlyWith} other plugins, and which, from its metadata. */
+    private static Map<String, List<String>> onlyWith(PluginWrapper plugin) {
+        Map<String, List<String>> onlyWith = new LinkedHashMap<>();
+        try (java.util.zip.ZipFile jar = new java.util.zip.ZipFile(plugin.getPluginPath().toFile())) {
+            java.util.zip.ZipEntry entry = jar.getEntry("META-INF/plugin-metadata.json");
+            if (entry == null) {
+                return onlyWith;
+            }
+            Object metadata = Json.parse(new String(jar.getInputStream(entry).readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8));
+            if (metadata instanceof Map<?, ?> root && root.get("extensions") instanceof List<?> extensions) {
+                for (Object extension : extensions) {
+                    if (extension instanceof Map<?, ?> e && e.get("onlyWith") instanceof List<?> needed) {
+                        onlyWith.put(String.valueOf(e.get("class")), needed.stream().map(String::valueOf).toList());
+                    }
+                }
+            }
+        } catch (java.io.IOException | IllegalArgumentException unreadable) {
+            log.warn("Plugin '{}': its metadata cannot be read, so every extension is offered", plugin.getPluginId(),
+                    unreadable);
+        }
+        return onlyWith;
+    }
+
+    /**
      * Stops and unloads {@code leavesFirst} in that order. PF4J's own transitive unload handles a dependent
      * before the dependents of that dependent, so in A &lt;- B &lt;- C it unloads B while C still runs on it.
      */

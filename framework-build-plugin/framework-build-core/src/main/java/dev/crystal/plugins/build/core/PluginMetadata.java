@@ -1,7 +1,9 @@
 package dev.crystal.plugins.build.core;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 import com.google.gson.GsonBuilder;
@@ -67,14 +69,25 @@ final class PluginMetadata {
 
     /** Union of {@code @Needs} over all extensions. */
     Set<String> needs() {
-        Set<String> needs = new TreeSet<>();
+        return declared("needs").keySet();
+    }
+
+    /** Each plugin named with {@code @OnlyWith}, and the extensions that name it. */
+    Map<String, Set<String>> onlyWith() {
+        return declared("onlyWith");
+    }
+
+    /** The plugin ids the extensions list under that key, each with the extensions that list it. */
+    private Map<String, Set<String>> declared(String key) {
+        Map<String, Set<String>> declared = new TreeMap<>();
         for (JsonElement e : source.getAsJsonArray("extensions")) {
-            JsonArray array = e.getAsJsonObject().getAsJsonArray("needs");
+            JsonArray array = e.getAsJsonObject().getAsJsonArray(key);
             if (array != null) {
-                array.forEach(n -> needs.add(n.getAsString()));
+                String extension = e.getAsJsonObject().get("class").getAsString();
+                array.forEach(n -> declared.computeIfAbsent(n.getAsString(), any -> new TreeSet<>()).add(extension));
             }
         }
-        return needs;
+        return declared;
     }
 
     String complete(String id, String version, String apiVersion, List<RoleApi> roleApis,
@@ -105,6 +118,9 @@ final class PluginMetadata {
                 o.addProperty("version", dependency.version());
             }
             o.addProperty("source", dependency.source().json());
+            if (dependency.optional()) {
+                o.addProperty("optional", true);
+            }
             if (!dependency.types().isEmpty()) {
                 JsonArray types = new JsonArray();
                 dependency.types().forEach(types::add);

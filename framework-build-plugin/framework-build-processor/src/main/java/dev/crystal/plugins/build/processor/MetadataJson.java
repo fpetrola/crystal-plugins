@@ -29,6 +29,9 @@ final class MetadataJson {
             out.append("      \"replaces\": ").append(array(e.replaces())).append(",\n");
             out.append("      \"needs\": ").append(array(e.needs())).append(",\n");
             out.append("      \"lifecycle\": ").append(e.lifecycle());
+            if (!e.onlyWith().isEmpty()) {
+                out.append(",\n      \"onlyWith\": ").append(array(e.onlyWith()));
+            }
             if (!e.answers().isEmpty()) {
                 out.append(",\n      \"answers\": {");
                 Iterator<java.util.Map.Entry<String, java.util.List<String>>> a = e.answers().entrySet().iterator();

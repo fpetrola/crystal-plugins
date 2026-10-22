@@ -11,6 +11,7 @@ public final class Contract {
     public static final String ROLE_INTERFACE = "dev.crystal.plugins.api.RoleInterface";
     public static final String REPLACES = "dev.crystal.plugins.api.Replaces";
     public static final String NEEDS = "dev.crystal.plugins.api.Needs";
+    public static final String ONLY_WITH = "dev.crystal.plugins.api.OnlyWith";
     public static final String ANSWERS = "dev.crystal.plugins.api.Answers";
     public static final String ANSWERS_LIST = "dev.crystal.plugins.api.Answers.List";
     public static final String OFFERS = "dev.crystal.plugins.api.Offers";

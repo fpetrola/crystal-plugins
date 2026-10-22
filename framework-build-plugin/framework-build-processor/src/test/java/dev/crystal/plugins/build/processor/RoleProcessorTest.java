@@ -190,6 +190,10 @@ class RoleProcessorTest {
                         package p;
                         @dev.crystal.plugins.api.Needs("x") public class Stray { }
                         """,
+                "p.Loose", """
+                        package p;
+                        @dev.crystal.plugins.api.OnlyWith("x") public class Loose { }
+                        """,
                 "p.NotAnInterface", """
                         package p;
                         @dev.crystal.plugins.api.RoleInterface public class NotAnInterface { }
@@ -200,8 +204,9 @@ class RoleProcessorTest {
         assertTrue(errors.contains("Inner has an @Inject constructor but cannot be an extension: it is an inner"),
                 errors);
         assertTrue(errors.contains("more than one constructor is annotated with @Inject"), errors);
-        assertTrue(errors.contains("@Replaces/@Needs only apply to extensions, and Tuned is not one"), errors);
-        assertTrue(errors.contains("@Replaces/@Needs only apply to extensions, and Stray is not one"), errors);
+        assertTrue(errors.contains("@Replaces/@Needs/@OnlyWith only apply to extensions, and Tuned is not one"), errors);
+        assertTrue(errors.contains("@Replaces/@Needs/@OnlyWith only apply to extensions, and Stray is not one"), errors);
+        assertTrue(errors.contains("@Replaces/@Needs/@OnlyWith only apply to extensions, and Loose is not one"), errors);
         assertTrue(errors.contains("@RoleInterface can only be placed on an interface"), errors);
     }
 
@@ -273,6 +278,27 @@ class RoleProcessorTest {
         assertTrue(json.contains("\"answers\":{\"dev.SnapshotFile\":[\"tap\",\"tzx\"]}"), json);
         assertTrue(json.contains("\"answers\":{\"dev.Machine\":[\"Pentagon128\"],\"dev.SnapshotFile\":[\"pent\"]}"),
                 json);
+    }
+
+    @Test
+    void theOtherPluginsAnExtensionIsOnlyWithGoIntoTheMetadata() throws IOException {
+        Result result = compile(Map.of(
+                "app.Exporter", ROLE,
+                "p.Sheet", """
+                        package p;
+                        @dev.crystal.plugins.api.OnlyWith({"spreadsheet", "fonts"})
+                        public class Sheet implements app.Exporter { public String format() { return "ods"; } }
+                        """,
+                "p.Txt", """
+                        package p;
+                        public class Txt implements app.Exporter { public String format() { return "txt"; } }
+                        """));
+        assertTrue(result.errors().isEmpty(), result.errors().toString());
+        String json = Files.readString(out.resolve(METADATA)).replaceAll("\\s+", "");
+        assertTrue(json.contains("\"class\":\"p.Sheet\",\"roles\":[\"app.Exporter\"],\"replaces\":[],\"needs\":[],"
+                + "\"lifecycle\":false,\"onlyWith\":[\"fonts\",\"spreadsheet\"]}"), json);
+        assertTrue(json.contains("\"class\":\"p.Txt\",\"roles\":[\"app.Exporter\"],\"replaces\":[],\"needs\":[],"
+                + "\"lifecycle\":false}"), json);
     }
 
     @Test

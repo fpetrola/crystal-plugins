@@ -23,7 +23,8 @@ import java.util.TreeSet;
  *   <li><b>Dependencies.</b> Every type referenced by the compiled classes is classified: the plugin's own,
  *       the JDK's, shared API (a provided non-plugin entry: dropped), another plugin (a dependency pinned to
  *       the version compiled against) or a private library (a warning, since jar plugins do not carry
- *       libraries). {@code @Needs} ids are added, pinned too when the plugin is on the classpath.</li>
+ *       libraries). {@code @Needs} ids are added, pinned too when the plugin is on the classpath.
+ *       {@code @OnlyWith} ids are optional, and only the extensions that name them may reference their types.</li>
  *   <li><b>Writing.</b> PF4J manifest attributes, and {@code plugin-metadata.json} completed with what only
  *       the build knows.</li>
  * </ol>
@@ -74,7 +75,7 @@ public final class PluginPackager {
             String version = PluginVersions.toSemVer(request.version());
             List<String> warnings = new ArrayList<>();
             List<PluginDependency> dependencies = dependencies(request, classpath, bytecode.references(),
-                    metadata.needs(), warnings);
+                    metadata.needs(), metadata.onlyWith(), warnings);
             String apiVersion = frameworkApiVersion(classpath);
 
             Map<String, String> manifest = new LinkedHashMap<>();
@@ -160,41 +161,64 @@ public final class PluginPackager {
         }
     }
 
+    /**
+     * @param references every type each compiled class references, by the class
+     * @param onlyWith   each plugin named with {@code @OnlyWith}, and the extensions that name it: unless something
+     *                   {@code @Needs} it, it is optional, and only those extensions may reference its types
+     */
     private static List<PluginDependency> dependencies(PluginBuildRequest request, Classpath classpath,
-                                                       Set<String> references, Set<String> needs,
-                                                       List<String> warnings) {
+                                                       Map<String, Set<String>> references, Set<String> needs,
+                                                       Map<String, Set<String>> onlyWith, List<String> warnings) {
         Map<String, Classpath.PluginIdentity> plugins = new TreeMap<>();
         Map<String, Set<String>> typesByPlugin = new TreeMap<>();
+        Map<String, Set<String>> referrersByPlugin = new TreeMap<>();
         Map<ClasspathEntry, Set<String>> privateLibraries = new LinkedHashMap<>();
 
-        for (String reference : references) {
-            if (classpath.isOwn(reference) || JdkPackages.contains(reference)) {
-                continue;
-            }
-            Optional<ClasspathEntry> entry = classpath.owner(reference);
-            if (entry.isEmpty()) {
-                continue; // e.g. an annotation whose class javac did not need; nothing to load at runtime
-            }
-            String type = reference.replace('/', '.');
-            Optional<Classpath.PluginIdentity> plugin = classpath.plugin(entry.get());
-            if (plugin.isPresent()) {
-                if (!plugin.get().id().equals(request.pluginId())) {
-                    plugins.put(plugin.get().id(), plugin.get());
-                    typesByPlugin.computeIfAbsent(plugin.get().id(), id -> new TreeSet<>()).add(type);
+        references.forEach((referrer, referenced) -> {
+            for (String reference : referenced) {
+                if (classpath.isOwn(reference) || JdkPackages.contains(reference)) {
+                    continue;
                 }
-            } else if (!entry.get().provided()) {
-                privateLibraries.computeIfAbsent(entry.get(), e -> new TreeSet<>()).add(type);
+                Optional<ClasspathEntry> entry = classpath.owner(reference);
+                if (entry.isEmpty()) {
+                    continue; // e.g. an annotation whose class javac did not need; nothing to load at runtime
+                }
+                String type = reference.replace('/', '.');
+                Optional<Classpath.PluginIdentity> plugin = classpath.plugin(entry.get());
+                if (plugin.isPresent()) {
+                    if (!plugin.get().id().equals(request.pluginId())) {
+                        plugins.put(plugin.get().id(), plugin.get());
+                        typesByPlugin.computeIfAbsent(plugin.get().id(), id -> new TreeSet<>()).add(type);
+                        referrersByPlugin.computeIfAbsent(plugin.get().id(), id -> new TreeSet<>()).add(referrer);
+                    }
+                } else if (!entry.get().provided()) {
+                    privateLibraries.computeIfAbsent(entry.get(), e -> new TreeSet<>()).add(type);
+                }
+                // else: shared API, provided by the host
             }
-            // else: shared API, provided by the host
-        }
+        });
 
         Map<String, PluginDependency> dependencies = new TreeMap<>();
         plugins.forEach((id, plugin) -> dependencies.put(id, new PluginDependency(id, plugin.version(),
-                PluginDependency.Source.BYTECODE, List.copyOf(typesByPlugin.get(id)))));
+                PluginDependency.Source.BYTECODE, List.copyOf(typesByPlugin.get(id)),
+                onlyWith.containsKey(id) && !needs.contains(id))));
         for (String needed : needs) {
             if (!dependencies.containsKey(needed) && !needed.equals(request.pluginId())) {
                 String version = classpath.pluginById(needed).map(Classpath.PluginIdentity::version).orElse(null);
                 dependencies.put(needed, new PluginDependency(needed, version, PluginDependency.Source.NEEDS, List.of()));
+            }
+        }
+        for (String optional : onlyWith.keySet()) {
+            if (!dependencies.containsKey(optional) && !optional.equals(request.pluginId())) {
+                String version = classpath.pluginById(optional).map(Classpath.PluginIdentity::version).orElse(null);
+                dependencies.put(optional, new PluginDependency(optional, version, PluginDependency.Source.ONLY_WITH,
+                        List.of(), true));
+            }
+        }
+        for (PluginDependency dependency : dependencies.values()) {
+            if (dependency.optional()) {
+                checkOnlyWith(dependency.id(), onlyWith.get(dependency.id()),
+                        referrersByPlugin.getOrDefault(dependency.id(), Set.of()));
             }
         }
 
@@ -203,6 +227,22 @@ public final class PluginPackager {
                 + "(e.g. " + types.iterator().next() + ") but it is neither a plugin nor provided: a jar plugin does "
                 + "not carry libraries. Bundle it into the plugin jar, or declare it provided if the host supplies it."));
         return List.copyOf(dependencies.values());
+    }
+
+    /**
+     * Only the extensions that name an optional plugin, and the classes nested in them, may reference its types:
+     * any other class would fail where it is not installed, and with it the plugin the option was meant to keep.
+     */
+    private static void checkOnlyWith(String pluginId, Set<String> extensions, Set<String> referrers) {
+        List<String> others = referrers.stream()
+                .filter(referrer -> extensions.stream().map(e -> e.replace('.', '/'))
+                        .noneMatch(owner -> referrer.equals(owner) || referrer.startsWith(owner + "$")))
+                .map(referrer -> referrer.replace('/', '.')).toList();
+        if (!others.isEmpty()) {
+            throw new BuildException(others + " reference types of '" + pluginId + "', which only " + extensions
+                    + " need (@OnlyWith): without it they would not load. Move that code into the extension, or "
+                    + "declare @OnlyWith on them if they are extensions too.");
+        }
     }
 
     /** For each implemented role, the artifact that supplied the interface when this plugin was compiled. */

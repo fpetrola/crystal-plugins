@@ -209,7 +209,7 @@ try (PluginHarness harness = PluginHarness.builder().expose(Clock.class, () -> 0
 
 | Artifact | Used by | What it is |
 |---|---|---|
-| `framework-api` | plugins and application | `@RoleInterface`, `@Replaces`, `@Needs`, `@Answers`, `HasLifecycle`, `PluginSource`, `ConflictResolver` |
+| `framework-api` | plugins and application | `@RoleInterface`, `@Replaces`, `@Needs`, `@OnlyWith`, `@Answers`, `HasLifecycle`, `PluginSource`, `ConflictResolver` |
 | `framework-maven-plugin` | plugin and application builds | Builds plugin jars, bundles default plugins, checks single jars |
 | `framework-runtime` | application | `PluginService` |
 | `framework-guice` | application (optional) | `PluginsModule` for an existing Guice injector |

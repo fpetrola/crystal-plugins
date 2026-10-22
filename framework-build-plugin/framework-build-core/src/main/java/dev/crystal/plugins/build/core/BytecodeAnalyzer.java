@@ -25,7 +25,7 @@ import org.objectweb.asm.commons.Remapper;
  * What the compiled plugin actually is, read from its bytecode.
  *
  * <ul>
- *   <li>{@link #references()}: every type the plugin's classes mention anywhere (descriptors, generic
+ *   <li>{@link #references()}: every type each of the plugin's classes mentions anywhere (descriptors, generic
  *       signatures, annotations, method bodies, constants): the input of dependency analysis.</li>
  *   <li>{@link #extensions()}: the classes the processor must have indexed, by the processor's own rules.
  *       It cross-checks the processor's output, which goes stale if javac did not run the processor.</li>
@@ -57,23 +57,24 @@ final class BytecodeAnalyzer {
         this.classpath = classpath;
     }
 
-    /** Internal names referenced by the classes compiled from the plugin's sources. */
-    Set<String> references() throws IOException {
-        Set<String> references = new TreeSet<>();
-        Remapper collector = new Remapper(Opcodes.ASM9) {
-            @Override
-            public String map(String internalName) {
-                references.add(internalName);
-                return internalName;
-            }
-        };
+    /** Internal names referenced by each class compiled from the plugin's sources, by the class's internal name. */
+    Map<String, Set<String>> references() throws IOException {
+        Map<String, Set<String>> byClass = new HashMap<>();
         for (String name : classpath.compiledClasses()) {
+            Set<String> references = byClass.computeIfAbsent(name, any -> new TreeSet<>());
+            Remapper collector = new Remapper(Opcodes.ASM9) {
+                @Override
+                public String map(String internalName) {
+                    references.add(internalName);
+                    return internalName;
+                }
+            };
             byte[] bytes = classpath.bytes(name).orElseThrow();
             // The remapper sees every type name the class file contains; the writer is only there so every
             // visit (fields, methods, bodies, annotations) is delegated rather than skipped.
             new ClassReader(bytes).accept(new ClassRemapper(new ClassWriter(0), collector), 0);
         }
-        return references;
+        return byClass;
     }
 
     /**

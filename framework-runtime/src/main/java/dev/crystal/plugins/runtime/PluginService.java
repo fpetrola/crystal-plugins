@@ -212,8 +212,7 @@ public final class PluginService implements AutoCloseable {
      */
     public synchronized Removal remove(String pluginId) {
         checkOpen();
-        List<String> leavesFirst = withDependents(pluginId);
-        Set<String> going = Set.copyOf(leavesFirst);
+        Set<String> going = going(pluginId);
         List<Runnable> afterwards = new ArrayList<>();
         if (!registry.holdersOutside(going).isEmpty() && !holdListeners.isEmpty()) {
             for (java.util.function.Function<Set<String>, Runnable> release : holdListeners) {
@@ -439,7 +438,8 @@ public final class PluginService implements AutoCloseable {
     /**
      * Installs {@code pluginId} from the {@link PluginSource}, together with the dependencies it lacks, and
      * starts them now: when this method returns, their role implementations are in every {@link #roles} view.
-     * The plugins already running are not touched.
+     * The plugins already running are not touched, but for one with something {@code @OnlyWith} them: it is loaded
+     * again to offer it, or offers it from the next start if something holds it.
      *
      * <p>Dependencies come from the jars' own {@code Plugin-Dependencies}; each jar is downloaded once and
      * verified by SHA-256. A plugin already installed keeps its version, and a running plugin is never
@@ -485,6 +485,13 @@ public final class PluginService implements AutoCloseable {
                 manager.startPlugin(artifact.id());
             }
         }
+        List<String> offerMore = manager.optionalDependents(plan.stream().map(PluginArtifact::id).toList());
+        if (registry.holdersOutside(Set.copyOf(offerMore)).isEmpty()) {
+            unload(offerMore);
+            loadAgain(offerMore);
+        } else {
+            log.info("{} offer what is only with '{}' from the next start: something holds them", offerMore, pluginId);
+        }
         changed();
         List<PluginInfo> all = plugins();
         return plan.stream()
@@ -503,6 +510,9 @@ public final class PluginService implements AutoCloseable {
      * beforehand; {@link #uninstallOnNextStart} removes them when nothing can hold them any more.
      * {@code Set<Role>} views and {@code Provider<Role>} never pin a plugin.
      *
+     * <p>A plugin with something {@code @OnlyWith} one of them is not removed: it is unloaded before them, while what
+     * it reaches of them is still there, and loaded again after, without it.
+     *
      * @return the removed plugins, sub-plugins first, as {@code UNLOADED}
      * @throws IllegalArgumentException  if {@code pluginId} is not loaded
      * @throws PluginRetainedException  if a removed plugin is still held from outside
@@ -510,7 +520,7 @@ public final class PluginService implements AutoCloseable {
     public synchronized List<PluginInfo> uninstall(String pluginId) {
         checkOpen();
         List<String> leavesFirst = withDependents(pluginId);
-        List<String> holders = registry.holdersOutside(Set.copyOf(leavesFirst));
+        List<String> holders = registry.holdersOutside(going(pluginId));
         if (!holders.isEmpty()) {
             throw new PluginRetainedException(leavesFirst, holders);
         }
@@ -521,8 +531,10 @@ public final class PluginService implements AutoCloseable {
 
         installer.remove(Set.copyOf(leavesFirst));
         active = active.stream().filter(a -> !leavesFirst.contains(a.id())).toList();
-        unloading(leavesFirst);
-        manager.unloadInOrder(leavesFirst);
+        List<String> offerLess = manager.optionalDependents(leavesFirst);
+        unload(offerLess);
+        unload(leavesFirst);
+        loadAgain(offerLess);
         changed();
         return removed;
     }
@@ -530,12 +542,40 @@ public final class PluginService implements AutoCloseable {
     /**
      * Who would prevent {@link #uninstall}{@code (pluginId)} right now: {@code plugin 'id'} for another plugin, the
      * class name for an application object, holding a fixed reference to an implementation of {@code pluginId} or of
-     * a plugin depending on it. Empty when it can be uninstalled now; no need to try and catch.
+     * a plugin depending on it, or of one that is unloaded for a moment because it has something only with them.
+     * Empty when it can be uninstalled now; no need to try and catch.
      *
      * @throws IllegalArgumentException if {@code pluginId} is not loaded
      */
     public List<String> heldBy(String pluginId) {
-        return registry.holdersOutside(Set.copyOf(withDependents(pluginId)));
+        return registry.holdersOutside(going(pluginId));
+    }
+
+    /** What {@link #uninstall} unloads: the plugin, what depends on it, and what has something only with them. */
+    private Set<String> going(String pluginId) {
+        List<String> leavesFirst = withDependents(pluginId);
+        Set<String> going = new java.util.HashSet<>(leavesFirst);
+        going.addAll(manager.optionalDependents(leavesFirst));
+        return going;
+    }
+
+    private void unload(List<String> leavesFirst) {
+        unloading(leavesFirst);
+        manager.unloadInOrder(leavesFirst);
+    }
+
+    /** Loads and starts again plugins that were unloaded, what they depend on first. */
+    private void loadAgain(List<String> leavesFirst) {
+        List<String> dependenciesFirst = new ArrayList<>(leavesFirst);
+        java.util.Collections.reverse(dependenciesFirst);
+        for (String id : dependenciesFirst) {
+            active.stream().filter(a -> a.id().equals(id)).findFirst().ifPresent(a -> manager.loadPlugin(cache.path(a)));
+        }
+        for (String id : dependenciesFirst) {
+            if (manager.getPlugin(id) != null) {
+                manager.startPlugin(id);
+            }
+        }
     }
 
     /**

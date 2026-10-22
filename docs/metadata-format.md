@@ -125,7 +125,7 @@ y siempre en este orden, así el archivo es reproducible byte a byte.
 | `format`       | processor         | Versión del layout. Quien lo consuma debe rechazar formatos que no conozca.                          |
 | `id`, `version`| build tool        | Igual que en el manifiesto.                                                                          |
 | `apiVersion`   | build tool        | Versión de `framework-api` en tiempo de compilación.                                                 |
-| `extensions`   | processor         | Las extensiones (ver arriba): roles (ordenados), `@Replaces`, `@Needs`, si implementa `HasLifecycle`, y `answers` (rol → claves de `@Answers`) si tiene.|
+| `extensions`   | processor         | Las extensiones (ver arriba): roles (ordenados), `@Replaces`, `@Needs`, si implementa `HasLifecycle`, y `answers` (rol → claves de `@Answers`) y `onlyWith` (los ids de `@OnlyWith`) si tiene.|
 | `definesRoles` | processor         | Interfaces `@RoleInterface` declaradas *dentro* de este plugin (puntos de extensión para sub-plugins).|
 | `roleApis`     | build tool        | Para cada rol implementado, el artefacto (y su versión) que aportó la interfaz al compilar.          |
 | `dependencies` | build tool        | `{id, version?, source, types?}`. Ver "Dependencias". |
@@ -145,6 +145,13 @@ Una dependencia entre plugins sale de alguna de estas dos fuentes:
   referenciados, para saber de dónde viene la dependencia.
 - **`needs`**: un id declarado con `@Needs`, para lo que el bytecode no muestra (reflexión, recursos). Si
   ese plugin está en el classpath se ancla a su versión; si no, queda sin versión (cualquier versión).
+
+Un id que una extensión declara con `@OnlyWith` es **opcional** (`"optional": true`, y `id?` en el
+manifiesto): el plugin anda sin él y deja afuera esa extensión. Si no sale del bytecode, su `source` es
+`onlyWith`. Solo las extensiones que lo declaran, y las clases anidadas en ellas, pueden referenciar sus
+tipos; si otra clase lo hace, el build falla, porque sin ese plugin no cargaría. Instalar el plugin no
+instala sus opcionales; el runtime ofrece la extensión mientras el otro está cargado, y recarga el plugin
+cuando el otro llega o se va.
 
 No son dependencias: los tipos del JDK, los del propio plugin y la **API compartida** (una entrada
 `provided` que no es un plugin, como `framework-api` o la API de la app, que provee el host). Un tipo que
