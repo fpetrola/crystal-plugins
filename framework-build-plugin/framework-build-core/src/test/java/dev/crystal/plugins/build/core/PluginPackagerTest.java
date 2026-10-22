@@ -192,6 +192,29 @@ class PluginPackagerTest {
     }
 
     @Test
+    void aPluginOnlyAnOnlyWithExtensionUsesButDoesNotNameIsSaid() {
+        Path jar = buildPlugin(Map.of(
+                "acme.tsv.TabExporter", """
+                        package acme.tsv;
+                        @dev.crystal.plugins.api.OnlyWith("ghost")
+                        public class TabExporter implements app.Exporter {
+                            public String format() { return new Tab().separator(); }
+                            static class Tab implements acme.multi.Dialect { public String separator() { return "\\t"; } }
+                        }
+                        """), true);
+
+        PackagingResult result = PluginPackager.finish(request(jar, "1.0.0"));
+
+        assertEquals(List.of(
+                new PluginDependency("ghost", null, Source.ONLY_WITH, List.of(), true),
+                new PluginDependency("multi", "1.4.2", Source.BYTECODE, List.of("acme.multi.Dialect"))),
+                result.dependencies(), "not named, so the whole plugin needs it");
+        assertTrue(result.warnings().contains("'multi' is only used by extensions that are @OnlyWith other plugins, "
+                + "and they do not name it: the whole plugin needs it. Name it in their @OnlyWith if the plugin works "
+                + "without it."), result.warnings().toString());
+    }
+
+    @Test
     void anotherClassReachingWhatAnExtensionIsOnlyWithFailsTheBuild() {
         Path jar = buildPlugin(Map.of(
                 "acme.tsv.TabExporter", """

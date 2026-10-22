@@ -215,10 +215,17 @@ public final class PluginPackager {
                         List.of(), true));
             }
         }
+        Set<String> onlyWithSomething = new TreeSet<>();
+        onlyWith.values().forEach(onlyWithSomething::addAll);
         for (PluginDependency dependency : dependencies.values()) {
+            Set<String> referrers = referrersByPlugin.getOrDefault(dependency.id(), Set.of());
             if (dependency.optional()) {
-                checkOnlyWith(dependency.id(), onlyWith.get(dependency.id()),
-                        referrersByPlugin.getOrDefault(dependency.id(), Set.of()));
+                checkOnlyWith(dependency.id(), onlyWith.get(dependency.id()), referrers);
+            } else if (!referrers.isEmpty() && referrers.stream()
+                    .allMatch(referrer -> onlyWithSomething.stream().anyMatch(e -> ownedBy(referrer, e)))) {
+                warnings.add("'" + dependency.id() + "' is only used by extensions that are @OnlyWith other plugins, "
+                        + "and they do not name it: the whole plugin needs it. Name it in their @OnlyWith if the plugin "
+                        + "works without it.");
             }
         }
 
@@ -235,14 +242,19 @@ public final class PluginPackager {
      */
     private static void checkOnlyWith(String pluginId, Set<String> extensions, Set<String> referrers) {
         List<String> others = referrers.stream()
-                .filter(referrer -> extensions.stream().map(e -> e.replace('.', '/'))
-                        .noneMatch(owner -> referrer.equals(owner) || referrer.startsWith(owner + "$")))
+                .filter(referrer -> extensions.stream().noneMatch(extension -> ownedBy(referrer, extension)))
                 .map(referrer -> referrer.replace('/', '.')).toList();
         if (!others.isEmpty()) {
             throw new BuildException(others + " reference types of '" + pluginId + "', which only " + extensions
                     + " need (@OnlyWith): without it they would not load. Move that code into the extension, or "
                     + "declare @OnlyWith on them if they are extensions too.");
         }
+    }
+
+    /** Whether the class of that internal name is the extension of that binary name, or nested in it. */
+    private static boolean ownedBy(String referrer, String extension) {
+        String owner = extension.replace('.', '/');
+        return referrer.equals(owner) || referrer.startsWith(owner + "$");
     }
 
     /** For each implemented role, the artifact that supplied the interface when this plugin was compiled. */
