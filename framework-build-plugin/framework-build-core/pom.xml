@@ -31,6 +31,11 @@
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.crystal.plugins</groupId>
+            <artifactId>framework-runtime</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>dev.crystal.plugins</groupId>

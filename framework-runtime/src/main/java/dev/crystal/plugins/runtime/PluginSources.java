@@ -37,7 +37,37 @@ public final class PluginSources {
      * without the plugin metadata, or a directory full of something else.
      */
     public static PluginSource directory(Path directory) {
-        return new DirectorySource(directory);
+        return new JarsSource("directory(" + directory + ")", true, () -> {
+            try (DirectoryStream<Path> jars = Files.newDirectoryStream(directory, "*.jar")) {
+                List<Path> found = new ArrayList<>();
+                jars.forEach(found::add);
+                return found;
+            }
+        });
+    }
+
+    /**
+     * The plugins of {@code groupId} (and of the groupIds under it) at {@code version} in a Maven local repository,
+     * looked up again at each listing: what the last {@code mvn install} left there is what is offered.
+     */
+    public static PluginSource repository(Path localRepository, String groupId, String version) {
+        return new JarsSource("repository(" + groupId + ":" + version + ")", false,
+                () -> repositoryJars(localRepository, groupId, version));
+    }
+
+    /** The main jar of every artifact of {@code groupId} (or a groupId under it) at {@code version}. */
+    public static List<Path> repositoryJars(Path localRepository, String groupId, String version) throws IOException {
+        Path groupDirectory = localRepository.resolve(groupId.replace('.', '/'));
+        if (!Files.isDirectory(groupDirectory)) {
+            return List.of();
+        }
+        try (java.util.stream.Stream<Path> files = Files.walk(groupDirectory)) {
+            return files.filter(jar -> Files.isRegularFile(jar)
+                            && jar.getParent().getFileName().toString().equals(version)
+                            && jar.getFileName().toString().equals(
+                                    jar.getParent().getParent().getFileName() + "-" + version + ".jar"))
+                    .sorted().toList();
+        }
     }
 
     /**
@@ -57,8 +87,15 @@ public final class PluginSources {
     private static final class BundledSource implements PluginSource {
         private static final String INDEX = "META-INF/crystal/bundled.idx";
         private static final String DIRECTORY = "META-INF/crystal/bundled/";
+        /**
+         * {@code groupId} and {@code version} of the plugins to bundle. An application run from its classes directory
+         * (from an IDE) reads them from the local repository, even if a build left copies inside: those go stale
+         * with the next {@code mvn install} of a plugin. A packaged application uses what it carries.
+         */
+        private static final String UNPACKED = "META-INF/crystal/bundle.properties";
         private final ClassLoader loader;
         private final Map<PluginArtifact, String> files = new ConcurrentHashMap<>();
+        private volatile PluginSource unpacked;
 
         BundledSource(ClassLoader loader) {
             this.loader = loader;
@@ -68,6 +105,10 @@ public final class PluginSources {
         public List<PluginArtifact> artifacts() throws IOException {
             List<PluginArtifact> result = new ArrayList<>();
             files.clear();
+            unpacked = fromRepository();
+            if (unpacked != null) {
+                return unpacked.artifacts();
+            }
             java.util.Enumeration<java.net.URL> indexes = loader.getResources(INDEX);
             while (indexes.hasMoreElements()) {
                 try (InputStream in = indexes.nextElement().openStream()) {
@@ -91,6 +132,9 @@ public final class PluginSources {
 
         @Override
         public InputStream open(PluginArtifact artifact) throws IOException {
+            if (unpacked != null) {
+                return unpacked.open(artifact);
+            }
             String resource = files.get(artifact);
             InputStream in = resource == null ? null : loader.getResourceAsStream(resource);
             if (in == null) {
@@ -108,9 +152,23 @@ public final class PluginSources {
             }
         }
 
+        private PluginSource fromRepository() throws IOException {
+            java.net.URL where = loader.getResource(UNPACKED);
+            if (where == null || !"file".equals(where.getProtocol())) {
+                return null;
+            }
+            try (InputStream in = where.openStream()) {
+                java.util.Properties bundle = new java.util.Properties();
+                bundle.load(in);
+                Path repository = Path.of(System.getProperty("maven.repo.local",
+                        Path.of(System.getProperty("user.home"), ".m2", "repository").toString()));
+                return repository(repository, bundle.getProperty("groupId"), bundle.getProperty("version"));
+            }
+        }
+
         @Override
         public String toString() {
-            return "bundled plugins";
+            return unpacked == null ? "bundled plugins" : "bundled plugins, " + unpacked;
         }
     }
 
@@ -200,12 +258,22 @@ public final class PluginSources {
         }
     }
 
-    private static final class DirectorySource implements PluginSource {
-        private final Path directory;
+    /** Where the jars of a {@link JarsSource} are, asked again at each listing. */
+    @FunctionalInterface
+    private interface Jars {
+        List<Path> find() throws IOException;
+    }
+
+    private static final class JarsSource implements PluginSource {
+        private final String name;
+        private final boolean warnIgnored;
+        private final Jars jars;
         private final Map<PluginArtifact, Path> files = new ConcurrentHashMap<>();
 
-        DirectorySource(Path directory) {
-            this.directory = directory;
+        JarsSource(String name, boolean warnIgnored, Jars jars) {
+            this.name = name;
+            this.warnIgnored = warnIgnored;
+            this.jars = jars;
         }
 
         @Override
@@ -213,24 +281,22 @@ public final class PluginSources {
             List<PluginArtifact> result = new ArrayList<>();
             List<String> ignored = new ArrayList<>();
             files.clear();
-            try (DirectoryStream<Path> jars = Files.newDirectoryStream(directory, "*.jar")) {
-                for (Path jar : jars) {
-                    Attributes main = mainAttributes(jar);
-                    String id = main == null ? null : main.getValue("Plugin-Id");
-                    String version = main == null ? null : main.getValue("Plugin-Version");
-                    if (id == null || version == null) {
-                        ignored.add(jar.getFileName().toString());
-                        continue;
-                    }
-                    PluginArtifact artifact = new PluginArtifact(id, version, sha256(jar));
-                    files.put(artifact, jar);
-                    result.add(artifact);
+            for (Path jar : jars.find()) {
+                Attributes main = mainAttributes(jar);
+                String id = main == null ? null : main.getValue("Plugin-Id");
+                String version = main == null ? null : main.getValue("Plugin-Version");
+                if (id == null || version == null) {
+                    ignored.add(jar.getFileName().toString());
+                    continue;
                 }
+                PluginArtifact artifact = new PluginArtifact(id, version, sha256(jar));
+                files.put(artifact, jar);
+                result.add(artifact);
             }
-            if (!ignored.isEmpty()) {
+            if (warnIgnored && !ignored.isEmpty()) {
                 ignored.sort(null);
                 log.warn("Ignored {} jar(s) in {} without Plugin-Id/Plugin-Version in their manifest: {}",
-                        ignored.size(), directory, ignored);
+                        ignored.size(), name, ignored);
             }
             return result;
         }
@@ -239,7 +305,7 @@ public final class PluginSources {
         public InputStream open(PluginArtifact artifact) throws IOException {
             Path jar = files.get(artifact);
             if (jar == null) {
-                throw new IOException("Unknown artifact " + artifact.coordinates() + " in " + directory);
+                throw new IOException("Unknown artifact " + artifact.coordinates() + " in " + name);
             }
             return Files.newInputStream(jar);
         }
@@ -262,7 +328,7 @@ public final class PluginSources {
 
         @Override
         public String toString() {
-            return "directory(" + directory + ")";
+            return name;
         }
     }
 }

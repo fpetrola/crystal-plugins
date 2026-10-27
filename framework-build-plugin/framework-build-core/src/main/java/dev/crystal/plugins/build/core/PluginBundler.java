@@ -17,7 +17,6 @@ import java.util.TreeMap;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
-import java.util.stream.Stream;
 
 /**
  * Puts default plugins inside a host application: finds plugin jars in a Maven local repository and copies them,
@@ -58,16 +57,10 @@ public final class PluginBundler {
                     + ": install the plugins (mvn install) before building the application");
         }
         Path target = classes.resolve(DIRECTORY);
-        try (Stream<Path> files = Files.walk(groupDirectory)) {
-            for (Path jar : files.filter(PluginBundler::isArtifactJar).sorted().toList()) {
+        try {
+            for (Path jar : dev.crystal.plugins.runtime.PluginSources.repositoryJars(localRepository, groupId, version)) {
                 Path versionDirectory = jar.getParent();
-                if (!versionDirectory.getFileName().toString().equals(version)) {
-                    continue;
-                }
                 String artifactId = versionDirectory.getParent().getFileName().toString();
-                if (!jar.getFileName().toString().equals(artifactId + "-" + version + ".jar")) {
-                    continue; // sources, javadoc, tests...
-                }
                 String group = localRepository.relativize(versionDirectory.getParent().getParent()).toString()
                         .replace('\\', '/').replace('/', '.');
                 String coordinates = group + ":" + artifactId + ":" + version;
@@ -94,10 +87,6 @@ public final class PluginBundler {
         }
         writeIndex(classes.resolve(INDEX), byId.values());
         return List.copyOf(byId.values());
-    }
-
-    private static boolean isArtifactJar(Path path) {
-        return Files.isRegularFile(path) && path.getFileName().toString().endsWith(".jar");
     }
 
     private static Attributes manifest(Path jar) throws IOException {

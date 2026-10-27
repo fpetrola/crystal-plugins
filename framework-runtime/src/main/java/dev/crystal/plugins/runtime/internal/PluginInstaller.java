@@ -189,6 +189,10 @@ public final class PluginInstaller {
         } catch (IOException e) {
             throw new PluginException("Cannot list plugins of " + from, e);
         }
+        if (offered.isEmpty()) {
+            // Recording an empty set would mark the defaults as installed, and they would never come.
+            return;
+        }
         Map<String, PluginArtifact> next = byId(offered);
         int downloads = 0;
         for (PluginArtifact artifact : next.values()) {
