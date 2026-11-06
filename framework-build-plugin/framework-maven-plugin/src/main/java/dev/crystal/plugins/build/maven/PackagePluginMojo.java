@@ -63,8 +63,8 @@ public class PackagePluginMojo extends AbstractMojo {
      * separated by commas: carried in {@code lib/} like a third party's library, and so is what they bring that is
      * not the family's.
      */
-    @Parameter(property = "crystal.carry", defaultValue = "")
-    private String carry;
+    @Parameter(property = "crystal.carry")
+    private String carry = "";
 
     @Override
     public void execute() throws MojoExecutionException {
