@@ -6,7 +6,7 @@
 
     <groupId>com.github.fpetrola.crystal-plugins</groupId>
     <artifactId>crystal-plugins-parent</artifactId>
-    <version>0.1.3</version>
+    <version>0.1.4</version>
     <packaging>pom</packaging>
 
     <name>Crystal Plugins</name>

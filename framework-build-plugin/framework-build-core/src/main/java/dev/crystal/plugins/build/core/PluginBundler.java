@@ -58,6 +58,13 @@ public final class PluginBundler {
         }
         Path target = classes.resolve(DIRECTORY);
         try {
+            if (Files.isDirectory(target)) {
+                try (var previous = Files.list(target)) {
+                    for (Path stale : previous.toList()) {
+                        Files.delete(stale);
+                    }
+                }
+            }
             for (Path jar : dev.crystal.plugins.runtime.PluginSources.repositoryJars(localRepository, groupId, version)) {
                 Path versionDirectory = jar.getParent();
                 String artifactId = versionDirectory.getParent().getFileName().toString();

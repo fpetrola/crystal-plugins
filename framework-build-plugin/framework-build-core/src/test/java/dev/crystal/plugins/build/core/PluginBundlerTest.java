@@ -25,6 +25,22 @@ class PluginBundlerTest {
     }
 
     @Test
+    void aBuildWithoutCleanCarriesOnlyThisVersion() throws IOException {
+        Path repo = dir.resolve("repo");
+        artifact(repo, "com.acme.plugins", "csv", "1.0.0", Map.of("Plugin-Id", "csv", "Plugin-Version", "1.0.0"));
+        artifact(repo, "com.acme.plugins", "csv", "2.0.0", Map.of("Plugin-Id", "csv", "Plugin-Version", "2.0.0"));
+        Path classes = Files.createDirectories(dir.resolve("classes"));
+        PluginBundler.bundle(repo, "com.acme", "1.0.0", "com.acme:app", classes);
+
+        PluginBundler.bundle(repo, "com.acme", "2.0.0", "com.acme:app", classes);
+
+        try (var files = Files.list(classes.resolve(PluginBundler.DIRECTORY))) {
+            assertEquals(List.of("csv-2.0.0.jar"), files.map(f -> f.getFileName().toString()).toList(),
+                    "what the previous build bundled is not carried along");
+        }
+    }
+
+    @Test
     void bundlesThePluginsOfTheGroupAtTheVersion() throws IOException {
         Path repo = dir.resolve("repo");
         artifact(repo, "com.acme.plugins", "csv", "1.0.0", Map.of("Plugin-Id", "csv", "Plugin-Version", "1.0.0"));
