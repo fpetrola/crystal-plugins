@@ -1,4 +1,5 @@
 jdk:
   - openjdk21
 install:
-  - mvn -B -DskipTests install
+  - curl -sSL https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz | tar xz -C /tmp
+  - /tmp/apache-maven-3.9.9/bin/mvn -B -DskipTests install
