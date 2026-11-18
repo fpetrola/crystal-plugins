@@ -63,33 +63,31 @@ final class LayeredSource implements PluginSource {
     }
 
     @Override
-    public synchronized InputStream open(PluginArtifact artifact) throws IOException {
-        for (Map.Entry<PluginArtifact, PluginSource> e : origin.entrySet()) {
-            if (e.getKey().equals(artifact)) {
-                return e.getValue().open(e.getKey());
-            }
+    public InputStream open(PluginArtifact artifact) throws IOException {
+        PluginSource source = sourceOf(artifact);
+        if (source == null) {
+            throw new IOException("Unknown artifact " + artifact.coordinates());
         }
-        throw new IOException("Unknown artifact " + artifact.coordinates());
+        return source.open(artifact);
+    }
+
+    /** Asked of the layer it came from without holding this one: a remote answer would make every other wait. */
+    @Override
+    public java.util.Optional<dev.crystal.plugins.api.PluginDescription> describe(PluginArtifact artifact) {
+        PluginSource source = sourceOf(artifact);
+        return source == null ? java.util.Optional.empty() : source.describe(artifact);
     }
 
     @Override
-    public synchronized java.util.Optional<dev.crystal.plugins.api.PluginDescription> describe(PluginArtifact artifact) {
-        for (Map.Entry<PluginArtifact, PluginSource> e : origin.entrySet()) {
-            if (e.getKey().equals(artifact)) {
-                return e.getValue().describe(e.getKey());
-            }
-        }
-        return java.util.Optional.empty();
+    public String origin(PluginArtifact artifact) {
+        PluginSource source = sourceOf(artifact);
+        return source == null ? toString() : source.origin(artifact);
     }
 
-    @Override
-    public synchronized String origin(PluginArtifact artifact) {
-        for (Map.Entry<PluginArtifact, PluginSource> e : origin.entrySet()) {
-            if (e.getKey().equals(artifact)) {
-                return e.getValue().origin(e.getKey());
-            }
-        }
-        return toString();
+    /** The layer that offered {@code artifact} in the last {@link #artifacts()}, or null. */
+    private synchronized PluginSource sourceOf(PluginArtifact artifact) {
+        return origin.entrySet().stream().filter(e -> e.getKey().equals(artifact)).map(Map.Entry::getValue)
+                .findFirst().orElse(null);
     }
 
     @Override

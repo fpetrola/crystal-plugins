@@ -20,6 +20,54 @@ import dev.crystal.plugins.runtime.fixtures.ReportExporter;
 /** Default plugins carried inside the application, installed on the first start without network. */
 class BundledDefaultsTest {
 
+    /** A catalog that takes a while to describe each plugin, the way one over the network does. */
+    private static final class SlowCatalog implements dev.crystal.plugins.api.PluginSource {
+        @Override
+        public List<dev.crystal.plugins.api.PluginArtifact> artifacts() {
+            return java.util.stream.IntStream.range(0, 10)
+                    .mapToObj(i -> new dev.crystal.plugins.api.PluginArtifact("p" + i, "1.0.0", "0".repeat(64))).toList();
+        }
+
+        @Override
+        public java.io.InputStream open(dev.crystal.plugins.api.PluginArtifact artifact) throws IOException {
+            throw new IOException("not needed");
+        }
+
+        @Override
+        public java.util.Optional<dev.crystal.plugins.api.PluginDescription> describe(
+                dev.crystal.plugins.api.PluginArtifact artifact) {
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return java.util.Optional.empty();
+        }
+    }
+
+    @Test
+    void aCatalogWithDefaultsIsDescribedAllAtOnceNotOneAfterTheOther() throws Exception {
+        dev.crystal.plugins.api.PluginSource none = new dev.crystal.plugins.api.PluginSource() {
+            @Override
+            public List<dev.crystal.plugins.api.PluginArtifact> artifacts() {
+                return List.of();
+            }
+
+            @Override
+            public java.io.InputStream open(dev.crystal.plugins.api.PluginArtifact artifact) throws IOException {
+                throw new IOException("none");
+            }
+        };
+        try (PluginService plugins = PluginService.builder().cacheDirectory(dir.resolve("cache"))
+                .source(new SlowCatalog()).defaults(none).build()) {
+            List<dev.crystal.plugins.api.PluginArtifact> offered = plugins.available();
+            long started = System.nanoTime();
+            plugins.describeAll(offered);
+            long took = (System.nanoTime() - started) / 1_000_000;
+            assertTrue(took < 1500, "10 descriptions of 300 ms each took " + took + " ms: asked one after the other");
+        }
+    }
+
     @TempDir
     Path dir;
 
