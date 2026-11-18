@@ -112,6 +112,20 @@ class PluginsPanelTest {
     }
 
     @Test
+    void updateBringsAPluginRepublishedUnderTheSameVersion() throws Exception {
+        PluginJars.plugin("md", "2.0.0").withProcessor().source("acme.md.Exporter", exporter("md", "")).buildInto(repo);
+        try (PluginService plugins = PluginService.builder().source(PluginSources.directory(repo)).build()) {
+            plugins.start();
+            plugins.install("md");
+            PluginsPanel panel = new PluginsPanel(plugins);
+            assertEquals("Everything installed is what the catalog publishes", panel.update());
+            PluginJars.plugin("md", "2.0.0").withProcessor().source("acme.md.Exporter", exporter("md", ""))
+                    .source("acme.md.Fixed", "package acme.md; public class Fixed {}").buildInto(repo);
+            assertEquals("Updated md: restart to use them", panel.update(), "same version, other bytes");
+        }
+    }
+
+    @Test
     void theCatalogOffersWhatIsNotInstalledAndInstallsIt() throws Exception {
         PluginJars.plugin("csv", "1.0.0").withProcessor().source("acme.csv.Exporter", exporter("csv", ""))
                 .buildInto(repo);

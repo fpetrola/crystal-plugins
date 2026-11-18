@@ -34,6 +34,7 @@ import javax.swing.tree.TreeSelectionModel;
 import dev.crystal.plugins.api.PluginArtifact;
 import dev.crystal.plugins.runtime.PluginInfo;
 import dev.crystal.plugins.runtime.PluginService;
+import dev.crystal.plugins.runtime.UpdateReport;
 
 /**
  * A reference panel for a Swing application's plugin settings. The installed plugins and what the catalog (the
@@ -92,9 +93,15 @@ public class PluginsPanel extends JPanel {
 
         JButton refresh = new JButton("Refresh", PluginIcons.check());
         refresh.addActionListener(e -> refresh());
+        JButton update = new JButton("Update", PluginIcons.install());
+        update.setToolTipText("Bring what the catalog publishes now of the installed plugins; it takes effect on the next start");
+        update.addActionListener(e -> background("Looking for updates...", this::update, status::setText));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        actions.add(update);
+        actions.add(refresh);
         JPanel south = new JPanel(new BorderLayout());
         south.add(status, BorderLayout.CENTER);
-        south.add(refresh, BorderLayout.EAST);
+        south.add(actions, BorderLayout.EAST);
         add(south, BorderLayout.SOUTH);
 
         refresh();
@@ -321,6 +328,18 @@ public class PluginsPanel extends JPanel {
             parts.add(0, "Installed " + String.join(", ", added));
         }
         return new Result(String.join("; ", parts), added);
+    }
+
+    /** What the Update button does, without waiting for it; for the button and tests. */
+    String update() {
+        try {
+            List<String> changed = plugins.checkForUpdates().changes().stream()
+                    .filter(c -> c.kind() == UpdateReport.Kind.UPDATED).map(UpdateReport.Change::id).toList();
+            return changed.isEmpty() ? "Everything installed is what the catalog publishes"
+                    : "Updated " + String.join(", ", changed) + ": restart to use them";
+        } catch (RuntimeException e) {
+            return "Cannot update: " + e.getMessage();
+        }
     }
 
     /** Shows an installation: the new plugins leave the available list and are selected where they arrived. */
