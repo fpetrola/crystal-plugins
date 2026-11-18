@@ -77,6 +77,12 @@ public class PackagePluginMojo extends AbstractMojo {
         if (jar == null || !jar.isFile()) {
             throw new MojoExecutionException("crystal: no jar to finish; package-plugin must run after jar:jar");
         }
+        for (String carried : carried()) {
+            if (!familyGroup(carried.split(":")[0])) {
+                throw new MojoExecutionException("crystal: crystal.carry names " + carried + ", which is not of the family ("
+                        + project.getGroupId() + ") and is carried anyway: an old name left after renaming the groupId?");
+            }
+        }
         List<ClasspathEntry> classpath = project.getArtifacts().stream()
                 .filter(a -> a.getFile() != null)
                 .map(a -> new ClasspathEntry(a.getFile().toPath(), a.getGroupId(), a.getArtifactId(),
@@ -154,11 +160,17 @@ public class PackagePluginMojo extends AbstractMojo {
     /** Whether {@code groupId:artifactId[:...]} is the application's to supply. */
     private boolean family(String coordinates) {
         String[] said = coordinates.split(":");
-        String groupId = said[0];
+        return familyGroup(said[0]) && !carried().contains(said[0] + ":" + said[1]);
+    }
+
+    private boolean familyGroup(String groupId) {
         String own = project.getGroupId();
-        boolean family = groupId.equals(own) || groupId.startsWith(own + ".") || groupId.equals(FRAMEWORK_GROUP)
+        return groupId.equals(own) || groupId.startsWith(own + ".") || groupId.equals(FRAMEWORK_GROUP)
                 || groupId.startsWith(FRAMEWORK_GROUP + ".");
-        return family && !List.of(carry.split(" *, *")).contains(groupId + ":" + said[1]);
+    }
+
+    private List<String> carried() {
+        return carry.isBlank() ? List.of() : List.of(carry.trim().split(" *, *"));
     }
 
     /**
