@@ -26,7 +26,7 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <crystal.version>0.1.0</crystal.version>
+        <crystal.version>0.1.1</crystal.version>
     </properties>
 
     <dependencyManagement>
