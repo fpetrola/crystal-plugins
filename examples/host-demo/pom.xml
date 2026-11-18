@@ -18,12 +18,12 @@
 
     <dependencies>
         <dependency>
-            <groupId>dev.crystal.plugins</groupId>
+            <groupId>com.github.fpetrola.crystal-plugins</groupId>
             <artifactId>framework-runtime</artifactId>
             <version>${crystal.version}</version>
         </dependency>
         <dependency>
-            <groupId>dev.crystal.plugins</groupId>
+            <groupId>com.github.fpetrola.crystal-plugins</groupId>
             <artifactId>framework-guice</artifactId>
             <version>${crystal.version}</version>
         </dependency>

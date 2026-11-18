@@ -26,13 +26,13 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <crystal.version>0.1.0-SNAPSHOT</crystal.version>
+        <crystal.version>0.1.0</crystal.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>dev.crystal.plugins</groupId>
+                <groupId>com.github.fpetrola.crystal-plugins</groupId>
                 <artifactId>framework-api</artifactId>
                 <version>${crystal.version}</version>
             </dependency>
@@ -68,7 +68,7 @@
             <!-- The whole author-side setup. Declared once; modules without role implementations
                  (the APIs, the host) are left untouched. -->
             <plugin>
-                <groupId>dev.crystal.plugins</groupId>
+                <groupId>com.github.fpetrola.crystal-plugins</groupId>
                 <artifactId>framework-maven-plugin</artifactId>
                 <version>${crystal.version}</version>
                 <extensions>true</extensions>

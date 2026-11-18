@@ -38,7 +38,7 @@ class PluginPackagerTest {
 
     @BeforeEach
     void classpath() {
-        frameworkApi = new ClasspathEntry(Fixtures.location(RoleInterface.class), "dev.crystal.plugins",
+        frameworkApi = new ClasspathEntry(Fixtures.location(RoleInterface.class), "com.github.fpetrola.crystal-plugins",
                 "framework-api", "0.1.0", true);
         inject = new ClasspathEntry(Fixtures.location(jakarta.inject.Inject.class), "jakarta.inject",
                 "jakarta.inject-api", "2.0.1", true);

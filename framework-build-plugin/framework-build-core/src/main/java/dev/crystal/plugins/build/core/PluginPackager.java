@@ -34,7 +34,7 @@ public final class PluginPackager {
     static final String METADATA = "META-INF/plugin-metadata.json";
     static final String EXTENSIONS_INDEX = "META-INF/extensions.idx";
     static final String GENERIC_PLUGIN_CLASS = "dev.crystal.plugins.runtime.internal.RolePlugin";
-    static final String FRAMEWORK_GROUP = "dev.crystal.plugins";
+    static final String FRAMEWORK_GROUP = "com.github.fpetrola.crystal-plugins";
     static final String FRAMEWORK_API = "framework-api";
     static final String ROLE_INTERFACE_CLASS = "dev/crystal/plugins/api/RoleInterface";
 

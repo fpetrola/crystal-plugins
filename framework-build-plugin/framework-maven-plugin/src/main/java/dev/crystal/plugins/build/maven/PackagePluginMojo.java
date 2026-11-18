@@ -32,7 +32,7 @@ import dev.crystal.plugins.build.core.PluginPackager;
         requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME)
 public class PackagePluginMojo extends AbstractMojo {
 
-    static final String FRAMEWORK_GROUP = "dev.crystal.plugins";
+    static final String FRAMEWORK_GROUP = "com.github.fpetrola.crystal-plugins";
 
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;

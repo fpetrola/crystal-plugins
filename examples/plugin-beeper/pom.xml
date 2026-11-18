@@ -21,7 +21,7 @@
         </dependency>
         <!-- Testing the plugin on its own: the real runtime, no host application. -->
         <dependency>
-            <groupId>dev.crystal.plugins</groupId>
+            <groupId>com.github.fpetrola.crystal-plugins</groupId>
             <artifactId>framework-test-harness</artifactId>
             <version>${crystal.version}</version>
             <scope>test</scope>
