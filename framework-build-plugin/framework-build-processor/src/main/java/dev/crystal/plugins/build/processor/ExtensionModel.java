@@ -13,7 +13,7 @@ import java.util.List;
  * @param lifecycle whether it implements {@code HasLifecycle}
  * @param serviceLoadable whether {@link java.util.ServiceLoader} can instantiate it (public no-arg constructor)
  * @param answers   role → keys of {@code @Answers} (both sorted); empty if it has none
- * @param offers    text+icon of each {@code @Offers}, in declaration order; empty if it has none
+ * @param offers    text, icon and description of each {@code @Offers}, in declaration order; empty if it has none
  */
 record ExtensionModel(String className, List<String> roles, List<String> replaces, List<String> needs,
                       List<String> onlyWith,

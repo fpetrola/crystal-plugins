@@ -50,7 +50,11 @@ final class MetadataJson {
                 while (o.hasNext()) {
                     OfferModel offer = o.next();
                     out.append("\n        {\"text\": ").append(quote(offer.text())).append(", \"icon\": ")
-                            .append(quote(offer.icon())).append('}');
+                            .append(quote(offer.icon()));
+                    if (!offer.description().isEmpty()) {
+                        out.append(", \"description\": ").append(quote(offer.description()));
+                    }
+                    out.append('}');
                     if (o.hasNext()) {
                         out.append(',');
                     }

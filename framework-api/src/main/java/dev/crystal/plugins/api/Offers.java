@@ -28,6 +28,9 @@ public @interface Offers {
     /** An icon name the application understands. */
     String icon() default "";
 
+    /** What it is, in a line a person reads before choosing it. */
+    String description() default "";
+
     /** Container of repeated {@link Offers}. */
     @Documented
     @Retention(RetentionPolicy.RUNTIME)

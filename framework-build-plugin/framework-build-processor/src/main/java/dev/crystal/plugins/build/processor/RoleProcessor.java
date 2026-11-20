@@ -407,7 +407,7 @@ public final class RoleProcessor extends AbstractProcessor {
         return result;
     }
 
-    /** Text+icon from the {@code @Offers} on {@code type} (repeated or not), in declaration order. */
+    /** Text, icon and description from the {@code @Offers} on {@code type} (repeated or not), in declaration order. */
     private List<OfferModel> offers(TypeElement type) {
         List<AnnotationMirror> all = new ArrayList<>();
         AnnotationMirror single = findAnnotation(type, Contract.OFFERS);
@@ -426,15 +426,18 @@ public final class RoleProcessor extends AbstractProcessor {
         for (AnnotationMirror offers : all) {
             String text = null;
             String icon = "";
+            String description = "";
             for (var entry : offers.getElementValues().entrySet()) {
                 String method = entry.getKey().getSimpleName().toString();
                 if (method.equals("value")) {
                     text = String.valueOf(entry.getValue().getValue());
                 } else if (method.equals("icon")) {
                     icon = String.valueOf(entry.getValue().getValue());
+                } else if (method.equals("description")) {
+                    description = String.valueOf(entry.getValue().getValue());
                 }
             }
-            result.add(new OfferModel(text, icon));
+            result.add(new OfferModel(text, icon, description));
         }
         return result;
     }
