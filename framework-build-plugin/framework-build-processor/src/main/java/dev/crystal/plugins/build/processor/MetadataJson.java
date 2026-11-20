@@ -54,6 +54,9 @@ final class MetadataJson {
                     if (!offer.description().isEmpty()) {
                         out.append(", \"description\": ").append(quote(offer.description()));
                     }
+                    if (!offer.known().isEmpty()) {
+                        out.append(", \"known\": ").append(quote(offer.known()));
+                    }
                     out.append('}');
                     if (o.hasNext()) {
                         out.append(',');

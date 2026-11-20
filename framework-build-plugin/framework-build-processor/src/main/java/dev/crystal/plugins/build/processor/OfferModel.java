@@ -6,6 +6,7 @@ package dev.crystal.plugins.build.processor;
  * @param text the action, as text a person reads
  * @param icon an icon name the application understands, or empty
  * @param description what it is, in a line a person reads, or empty
+ * @param known how a catalogue outside the application knows it, or empty
  */
-record OfferModel(String text, String icon, String description) {
+record OfferModel(String text, String icon, String description, String known) {
 }

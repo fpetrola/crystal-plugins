@@ -31,6 +31,9 @@ public @interface Offers {
     /** What it is, in a line a person reads before choosing it. */
     String description() default "";
 
+    /** How a catalogue outside the application knows it, as {@code catalogue:id}: {@code zxdb:1000221}. */
+    String known() default "";
+
     /** Container of repeated {@link Offers}. */
     @Documented
     @Retention(RetentionPolicy.RUNTIME)

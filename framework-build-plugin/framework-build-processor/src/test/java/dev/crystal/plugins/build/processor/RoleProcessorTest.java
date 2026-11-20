@@ -308,13 +308,13 @@ class RoleProcessorTest {
                 "p.Csv", """
                         package p;
                         @dev.crystal.plugins.api.Offers("Browse the game catalogue")
-                        @dev.crystal.plugins.api.Offers(value = "Export as CSV", icon = "csv", description = "Rows")
+                        @dev.crystal.plugins.api.Offers(value = "Export as CSV", icon = "csv", description = "Rows", known = "zxdb:1")
                         public class Csv implements app.Exporter { public String format() { return "csv"; } }
                         """));
         assertTrue(result.errors().isEmpty(), result.errors().toString());
         String json = Files.readString(out.resolve(METADATA)).replaceAll("\\s+", "");
         assertTrue(json.contains("\"offers\":[{\"text\":\"Browsethegamecatalogue\",\"icon\":\"\"},"
-                + "{\"text\":\"ExportasCSV\",\"icon\":\"csv\",\"description\":\"Rows\"}]"), json);
+                + "{\"text\":\"ExportasCSV\",\"icon\":\"csv\",\"description\":\"Rows\",\"known\":\"zxdb:1\"}]"), json);
     }
 
     @Test
