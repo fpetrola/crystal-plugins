@@ -146,6 +146,24 @@ class PluginPackagerTest {
         assertTrue(PluginJarFinisher.read(jar, PluginPackager.METADATA).contains("\"extensions\": []"));
     }
 
+    /** What it offers without being an extension stays in the metadata the build completes, for a catalogue to show. */
+    @Test
+    void whatIsOfferedWithoutBeingAnExtensionStaysInTheMetadata() throws IOException {
+        Path jar = buildPlugin(Map.of("acme.ide.Interface", """
+                package acme.ide;
+                public abstract class Interface { }
+                """, "acme.ide.Atasp", """
+                package acme.ide;
+                @dev.crystal.plugins.api.Offers(value = "ZXATASP", icon = "disk")
+                public class Atasp extends Interface { }
+                """), true);
+        PluginPackager.finish(new PluginBuildRequest(dir.resolve("classes"), jar, "ide",
+                "1.0", "acme", "ide", null, List.of(frameworkApi, inject, appApi, multiPlugin), null, true));
+
+        String json = PluginJarFinisher.read(jar, PluginPackager.METADATA).replaceAll("\\s+", "");
+        assertTrue(json.contains("\"offered\":[{\"class\":\"acme.ide.Atasp\",\"roles\":[\"acme.ide.Interface\"]"), json);
+    }
+
     @Test
     void needsIsPinnedWhenThePluginIsOnTheClasspath() {
         Path jar = buildPlugin(Map.of("acme.tsv.TsvExporter", """

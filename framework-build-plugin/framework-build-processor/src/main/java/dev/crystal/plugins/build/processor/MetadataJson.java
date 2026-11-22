@@ -15,7 +15,8 @@ final class MetadataJson {
     private MetadataJson() {
     }
 
-    static String write(Collection<ExtensionModel> extensions, Collection<String> definedRoles) {
+    static String write(Collection<ExtensionModel> extensions, Collection<ExtensionModel> offered,
+                        Collection<String> definedRoles) {
         StringBuilder out = new StringBuilder();
         out.append("{\n");
         out.append("  \"format\": ").append(Contract.METADATA_FORMAT).append(",\n");
@@ -44,26 +45,7 @@ final class MetadataJson {
                 }
                 out.append("\n      }");
             }
-            if (!e.offers().isEmpty()) {
-                out.append(",\n      \"offers\": [");
-                Iterator<OfferModel> o = e.offers().iterator();
-                while (o.hasNext()) {
-                    OfferModel offer = o.next();
-                    out.append("\n        {\"text\": ").append(quote(offer.text())).append(", \"icon\": ")
-                            .append(quote(offer.icon()));
-                    if (!offer.description().isEmpty()) {
-                        out.append(", \"description\": ").append(quote(offer.description()));
-                    }
-                    if (!offer.known().isEmpty()) {
-                        out.append(", \"known\": ").append(quote(offer.known()));
-                    }
-                    out.append('}');
-                    if (o.hasNext()) {
-                        out.append(',');
-                    }
-                }
-                out.append("\n      ]");
-            }
+            offers(out, e);
             out.append("\n");
             out.append("    }");
             if (it.hasNext()) {
@@ -71,9 +53,44 @@ final class MetadataJson {
             }
         }
         out.append(extensions.isEmpty() ? "],\n" : "\n  ],\n");
+        if (!offered.isEmpty()) {
+            out.append("  \"offered\": [");
+            Iterator<ExtensionModel> o = offered.iterator();
+            while (o.hasNext()) {
+                ExtensionModel e = o.next();
+                out.append("\n    {\n      \"class\": ").append(quote(e.className())).append(",\n      \"roles\": ")
+                        .append(array(e.roles()));
+                offers(out, e);
+                out.append("\n    }").append(o.hasNext() ? "," : "");
+            }
+            out.append("\n  ],\n");
+        }
         out.append("  \"definesRoles\": ").append(array(definedRoles)).append("\n");
         out.append("}\n");
         return out.toString();
+    }
+
+    private static void offers(StringBuilder out, ExtensionModel e) {
+        if (!e.offers().isEmpty()) {
+            out.append(",\n      \"offers\": [");
+            Iterator<OfferModel> o = e.offers().iterator();
+            while (o.hasNext()) {
+                OfferModel offer = o.next();
+                out.append("\n        {\"text\": ").append(quote(offer.text())).append(", \"icon\": ")
+                        .append(quote(offer.icon()));
+                if (!offer.description().isEmpty()) {
+                    out.append(", \"description\": ").append(quote(offer.description()));
+                }
+                if (!offer.known().isEmpty()) {
+                    out.append(", \"known\": ").append(quote(offer.known()));
+                }
+                out.append('}');
+                if (o.hasNext()) {
+                    out.append(',');
+                }
+            }
+            out.append("\n      ]");
+        }
     }
 
     private static String array(Collection<String> values) {

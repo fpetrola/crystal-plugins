@@ -200,6 +200,12 @@ public final class PluginSources {
                     byRole.forEach((role, keys) -> list(keys).forEach(k -> answers
                             .computeIfAbsent(String.valueOf(role), r -> new java.util.TreeSet<>()).add(String.valueOf(k))));
                 }
+            }
+        }
+        // What is offered without being an extension says what it offers the same way, its roles what it is a kind of.
+        for (Object extension : java.util.stream.Stream.concat(list(root.get("extensions")).stream(),
+                list(root.get("offered")).stream()).toList()) {
+            if (extension instanceof Map<?, ?> e) {
                 String className = String.valueOf(e.get("class"));
                 for (Object offer : list(e.get("offers"))) {
                     if (offer instanceof Map<?, ?> o) {

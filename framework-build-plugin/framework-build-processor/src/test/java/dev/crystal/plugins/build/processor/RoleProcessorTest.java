@@ -317,6 +317,29 @@ class RoleProcessorTest {
                 + "{\"text\":\"ExportasCSV\",\"icon\":\"csv\",\"description\":\"Rows\",\"known\":\"zxdb:1\"}]"), json);
     }
 
+    /**
+     * A class that is no extension, built by its plugin's own code, still says what it is: a catalogue offers it before
+     * the plugin is in, under what it is a kind of.
+     */
+    @Test
+    void whatIsOfferedWithoutBeingAnExtensionGoesIntoTheMetadataWithWhatItIsAKindOf() throws IOException {
+        Result result = compile(Map.of(
+                "app.Machine", """
+                        package app;
+                        public abstract class Machine { }
+                        """,
+                "p.Plus3", """
+                        package p;
+                        @dev.crystal.plugins.api.Offers(value = "Spectrum Plus 3", description = "A disk drive", icon = "desktop")
+                        public class Plus3 extends app.Machine { }
+                        """));
+        assertTrue(result.errors().isEmpty(), result.errors().toString());
+        String json = Files.readString(out.resolve(METADATA)).replaceAll("\\s+", "");
+        assertTrue(json.contains("\"offered\":[{\"class\":\"p.Plus3\",\"roles\":[\"app.Machine\"],"
+                + "\"offers\":[{\"text\":\"SpectrumPlus3\",\"icon\":\"desktop\",\"description\":\"Adiskdrive\"}]}]"), json);
+        assertTrue(json.contains("\"extensions\":[]"), json);
+    }
+
     @Test
     void anIncrementalCompilationKeepsWhatItDidNotRecompile() throws IOException {
         compile(Map.of(

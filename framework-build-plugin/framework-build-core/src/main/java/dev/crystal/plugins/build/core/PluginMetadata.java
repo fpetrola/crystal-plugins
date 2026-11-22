@@ -15,7 +15,7 @@ import com.google.gson.JsonParser;
 /**
  * Completes the processor's {@code plugin-metadata.json} with what only the build tool knows.
  *
- * <p>The processor writes {@code format}, {@code extensions} and {@code definesRoles}; this class adds
+ * <p>The processor writes {@code format}, {@code extensions}, {@code offered} and {@code definesRoles}; this class adds
  * {@code id}, {@code version}, {@code apiVersion}, {@code roleApis} and {@code dependencies}, keeping a fixed
  * key order so the file is stable across builds. See {@code docs/metadata-format.md}.
  */
@@ -98,6 +98,7 @@ final class PluginMetadata {
         out.addProperty("version", version);
         out.addProperty("apiVersion", apiVersion);
         out.add("extensions", source.get("extensions"));
+        if (source.has("offered")) out.add("offered", source.get("offered"));
         out.add("definesRoles", source.has("definesRoles") ? source.get("definesRoles") : new JsonArray());
 
         JsonArray apis = new JsonArray();

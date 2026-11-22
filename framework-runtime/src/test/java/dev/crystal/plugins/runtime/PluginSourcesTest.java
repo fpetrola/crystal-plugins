@@ -44,4 +44,22 @@ class PluginSourcesTest {
 
         assertEquals(List.of(new PluginArtifact("csv", "1.0.0", PluginSources.sha256(plugin))), artifacts);
     }
+
+    /** What a plugin offers without it being an extension comes with the rest, as a kind of what it extends. */
+    @Test
+    void whatIsOfferedWithoutBeingAnExtensionIsOfferedToo() throws IOException {
+        String json = """
+                {"format": 1,
+                 "extensions": [{"class": "p.Devices", "roles": ["app.Extension"], "replaces": [], "needs": [], "lifecycle": false}],
+                 "offered": [{"class": "p.Plus3", "roles": ["app.Machine"],
+                              "offers": [{"text": "Spectrum Plus 3", "icon": "desktop", "description": "A disk drive"}]}],
+                 "definesRoles": []}
+                """;
+        dev.crystal.plugins.api.PluginDescription described =
+                PluginSources.description(new java.io.ByteArrayInputStream(json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        assertEquals(List.of(new dev.crystal.plugins.api.Offer("p.Plus3", "Spectrum Plus 3", "desktop", List.of("app.Machine"),
+                "A disk drive", "")), described.offers());
+        assertEquals(List.of("app.Extension"), described.implementsRoles(), "what it is a kind of is no role it plays");
+    }
 }

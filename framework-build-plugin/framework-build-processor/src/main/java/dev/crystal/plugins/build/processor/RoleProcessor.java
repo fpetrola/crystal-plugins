@@ -60,6 +60,8 @@ public final class RoleProcessor extends AbstractProcessor {
 
     /** Binary class name to model; TreeMap keeps outputs byte-for-byte reproducible. */
     private final Map<String, ExtensionModel> extensions = new TreeMap<>();
+    /** What says what it offers without being an extension, its roles being what it is a kind of. */
+    private final Map<String, ExtensionModel> offered = new TreeMap<>();
     private final Set<String> definedRoles = new TreeSet<>();
     private final List<TypeElement> originating = new ArrayList<>();
     private final List<TypeElement> roleOrigins = new ArrayList<>();
@@ -81,7 +83,7 @@ public final class RoleProcessor extends AbstractProcessor {
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {
         if (round.processingOver()) {
             keepPreviousOutputs();
-            if (!extensions.isEmpty()) {
+            if (!extensions.isEmpty() || !offered.isEmpty()) {
                 writeOutputs();
             }
             if (!definedRoles.isEmpty()) {
@@ -129,6 +131,12 @@ public final class RoleProcessor extends AbstractProcessor {
             if (!replaces.isEmpty() || !needs.isEmpty() || !onlyWith.isEmpty()) {
                 error(type, "@Replaces/@Needs/@OnlyWith only apply to extensions, and %s is not one: %s",
                         type.getSimpleName(), notAnExtension);
+            }
+            List<OfferModel> offers = offers(type);
+            if (!offers.isEmpty()) {
+                offered.put(binaryName(type), new ExtensionModel(binaryName(type), kinds(type), List.of(), List.of(),
+                        List.of(), false, false, Map.of(), offers));
+                originating.add(type);
             }
             return;
         }
@@ -288,6 +296,7 @@ public final class RoleProcessor extends AbstractProcessor {
     private void rememberWhatWasSeen() {
         Set<String> seen = new TreeSet<>(definedRoles);
         seen.addAll(extensions.keySet());
+        seen.addAll(offered.keySet());
         try {
             java.nio.file.Path file = seenFile();
             java.nio.file.Files.createDirectories(file.getParent());
@@ -318,7 +327,7 @@ public final class RoleProcessor extends AbstractProcessor {
             write(Contract.SERVICES_DIR + entry.getKey(), String.join("\n", entry.getValue()) + "\n", origins);
         }
 
-        write(Contract.METADATA, MetadataJson.write(extensions.values(), definedRoles), origins);
+        write(Contract.METADATA, MetadataJson.write(extensions.values(), offered.values(), definedRoles), origins);
     }
 
     private void write(String resource, String content, Element[] origins) {
@@ -405,6 +414,21 @@ public final class RoleProcessor extends AbstractProcessor {
         Map<String, List<String>> result = new TreeMap<>();
         byRole.forEach((role, keys) -> result.put(role, List.copyOf(keys)));
         return result;
+    }
+
+    /** Every class and interface {@code type} is a kind of, nearest first, but the platform's own. */
+    private List<String> kinds(TypeElement type) {
+        Set<String> kinds = new java.util.LinkedHashSet<>();
+        Deque<TypeMirror> pending = new ArrayDeque<>(processingEnv.getTypeUtils().directSupertypes(type.asType()));
+        while (!pending.isEmpty()) {
+            TypeMirror next = pending.poll();
+            if (next instanceof DeclaredType declared && declared.asElement() instanceof TypeElement kind) {
+                String name = binaryName(kind);
+                if (!name.startsWith("java.") && !name.startsWith("javax.") && kinds.add(name))
+                    pending.addAll(processingEnv.getTypeUtils().directSupertypes(next));
+            }
+        }
+        return List.copyOf(kinds);
     }
 
     /** Text, icon, description and how it is known outside, from the {@code @Offers} on {@code type} (repeated or not), in declaration order. */
